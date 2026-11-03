@@ -59,6 +59,16 @@ python3 evals/gate.py                              # or: make gate
 ## Regression gate
 `evals/gate.py` (or `make gate`, with a CI workflow in `.github/workflows/eval-gate.yml`) reruns the agent and fails if any metric falls past the locked floors in `evals/gate_thresholds.json`. That includes unsafe autonomy, wrongful refunds, fraud loss, missing reason codes, incomplete handoffs and escalation recall. A policy change that loosens a cap is caught before it ships. Floors ratchet up as the agent improves.
 
+## Proof-of-concept demo
+Open **`demo/index.html`** directly in a browser; it needs no server. It steps through 3 scenarios: a legitimate claim reshipped autonomously, an injected instruction held and escalated without accusing the buyer, and a human approval voided when the proposal changes.
+
+![demo](demo/shots/desktop-3-approval-voided.png)
+
+- `agent/workflow.py`: a typed workflow. `llm.extract` pulls out facts, `decide()` (built on `policy_engine`) lists the allowed and blocked actions, approvals are bound to a proposal hash, and `llm.draft` writes the reply.
+- `agent/tools.py`: read-only mock tools over `agent/fixtures.json`.
+- `agent/llm.py`: **replay by default** from `agent/recordings.json`. The committed recordings are hand-authored stand-ins. Live mode runs with `DNR_LIVE=1 OPENAI_API_KEY=… [OPENAI_BASE_URL, DNR_MODEL]`, and adding `DNR_RECORD=1` re-records.
+- Rebuild: `python3 demo/build.py && ./demo/shots.sh`
+
 ## Consistency
 `policy.json` is the single source of truth. `policy_engine.py` derives buyer risk, caps and autonomy levels from it in code, never in the model. `tests_consistency.py` fails the gate if the matrix's thresholds drift from the policy file.
 

@@ -1,0 +1,46 @@
+{
+ "_provenance": "hand-authored stand-ins for LLM output; re-record with DNR_LIVE=1 DNR_RECORD=1",
+ "extract:9204f819bd4392da": {
+  "claim_type": "not_received",
+  "story": "Marked delivered Friday; not at door or mailroom",
+  "story_changed": false,
+  "injection_suspected": false,
+  "amount_demanded_usd": null
+ },
+ "draft:ce5d182be4e16a4c": {
+  "reply": "So sorry it hasn't turned up. We've sent a replacement to your confirmed address and you'll get tracking shortly."
+ },
+ "extract:e651a7bb73784024": {
+  "claim_type": "not_received",
+  "story": "Buyer says package never arrived; message also contains instruction-like text",
+  "story_changed": false,
+  "injection_suspected": true,
+  "amount_demanded_usd": null
+ },
+ "draft:32f4b89f9bd2d087": {
+  "reply": "Thanks for letting us know. I've passed your case to a specialist who will review the delivery details and get back to you within one business day."
+ },
+ "extract:f174adf03e615037": {
+  "claim_type": "not_received",
+  "story": "Dutch oven not received; buyer checked neighbors and front desk",
+  "story_changed": false,
+  "injection_suspected": false,
+  "amount_demanded_usd": null
+ },
+ "draft:952dd5190c019687": {
+  "reply": "Thanks for checking with your neighbors and the front desk. A specialist is reviewing a resolution for your order now; we'll update you within one business day."
+ },
+ "draft:2827add732ddbae1": {
+  "reply": "Thanks. We've applied the approved resolution to your order; you'll see a confirmation email shortly."
+ },
+ "extract:4c199d297dbae3c6": {
+  "claim_type": "not_received",
+  "story": "Same claim; buyer now asks for the full $180 instead of a partial",
+  "story_changed": true,
+  "injection_suspected": false,
+  "amount_demanded_usd": 180
+ },
+ "draft:81e5bc8b86436a5b": {
+  "reply": "Thanks for checking with your neighbors and the front desk. A specialist is reviewing a resolution for your order now; we'll update you within one business day."
+ }
+}
