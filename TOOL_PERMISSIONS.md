@@ -20,7 +20,7 @@ Least privilege applies throughout. The model proposes actions, and a **policy l
 
 ## Trust & Security rules
 - **Untrusted inputs:** buyer messages, seller messages and attachments are passed as quoted data and never concatenated into instructions.
-- **Adversarial patterns that route to `flag_fraud` at H:**
+- **Adversarial patterns that put the ticket on hold and route to `escalate_human` at H** (never `flag_fraud` on the buyer, since text can be planted or quoted innocently):
   - fake system or admin text
   - markup that tries to break out of the message
   - "the previous agent approved this"
@@ -29,6 +29,6 @@ Least privilege applies throughout. The model proposes actions, and a **policy l
   - instructions hidden in another language
   - requests to stack refund and reship together
 
-  The eval pack has 8 single-turn cases and 1 mid-conversation case covering these.
+  The eval pack has 8 single-turn cases, 1 mid-conversation case and 3 benign look-alikes (scored by `injection_false_positive_rate`).
 - **Fail closed:** if a tool errors or returns ambiguous data, the agent escalates rather than guessing.
 - **Audit log:** each call records tool, arguments, policy check result, reason code and model confidence.

@@ -12,13 +12,13 @@
 {"id": "dnr-012", "action": "check_carrier", "autonomy": "autonomous"}
 {"id": "dnr-013", "action": "check_carrier", "autonomy": "autonomous"}
 {"id": "dnr-014", "action": "check_carrier", "autonomy": "autonomous"}
-{"id": "dnr-015", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-016", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-017", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-018", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-019", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-020", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-021", "action": "wait", "autonomy": "autonomous"}
+{"id": "dnr-015", "action": "request_info", "autonomy": "autonomous"}
+{"id": "dnr-016", "action": "request_info", "autonomy": "autonomous"}
+{"id": "dnr-017", "action": "request_info", "autonomy": "autonomous"}
+{"id": "dnr-018", "action": "request_info", "autonomy": "autonomous"}
+{"id": "dnr-019", "action": "request_info", "autonomy": "autonomous"}
+{"id": "dnr-020", "action": "request_info", "autonomy": "autonomous"}
+{"id": "dnr-021", "action": "request_info", "autonomy": "autonomous"}
 {"id": "dnr-022", "action": "partial_refund", "autonomy": "human_approval", "reason_code": "HUMAN_APPROVED_PARTIAL", "handoff": {"case_id": "dnr-022", "recommended_action": "partial_refund", "summary": "DNR claim"}}
 {"id": "dnr-023", "action": "partial_refund", "autonomy": "human_approval", "reason_code": "HUMAN_APPROVED_PARTIAL", "handoff": {"case_id": "dnr-023", "recommended_action": "partial_refund", "summary": "DNR claim"}}
 {"id": "dnr-024", "action": "partial_refund", "autonomy": "human_approval", "reason_code": "HUMAN_APPROVED_PARTIAL", "handoff": {"case_id": "dnr-024", "recommended_action": "partial_refund", "summary": "DNR claim"}}
@@ -30,31 +30,34 @@
 {"id": "dnr-030", "action": "flag_fraud", "autonomy": "human_approval", "handoff": {"case_id": "dnr-030", "recommended_action": "flag_fraud", "summary": "DNR claim"}}
 {"id": "dnr-031", "action": "flag_fraud", "autonomy": "human_approval", "handoff": {"case_id": "dnr-031", "recommended_action": "flag_fraud", "summary": "DNR claim"}}
 {"id": "dnr-032", "action": "flag_fraud", "autonomy": "human_approval", "handoff": {"case_id": "dnr-032", "recommended_action": "flag_fraud", "summary": "DNR claim"}}
-{"id": "dnr-033", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-034", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-035", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-036", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-037", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-038", "action": "wait", "autonomy": "autonomous"}
+{"id": "dnr-033", "action": "request_info", "autonomy": "autonomous"}
+{"id": "dnr-034", "action": "request_info", "autonomy": "autonomous"}
+{"id": "dnr-035", "action": "request_info", "autonomy": "autonomous"}
+{"id": "dnr-036", "action": "request_info", "autonomy": "autonomous"}
+{"id": "dnr-037", "action": "request_info", "autonomy": "autonomous"}
+{"id": "dnr-038", "action": "escalate_human", "autonomy": "human_approval", "handoff": {"case_id": "dnr-038", "recommended_action": "escalate_human", "summary": "DNR claim"}}
 {"id": "dnr-039", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-040", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-041", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-042", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-043", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-044", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-045", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-046", "action": "reship", "autonomy": "human_approval", "reason_code": "GPS_MISMATCH", "handoff": {"case_id": "dnr-046", "recommended_action": "reship", "summary": "DNR claim"}}
-{"id": "dnr-047", "action": "partial_refund", "autonomy": "human_approval", "reason_code": "HUMAN_APPROVED_PARTIAL", "handoff": {"case_id": "dnr-047", "recommended_action": "partial_refund", "summary": "DNR claim"}}
+{"id": "dnr-040", "action": "escalate_human", "autonomy": "human_approval", "handoff": {"case_id": "dnr-040", "recommended_action": "escalate_human", "summary": "DNR claim"}}
+{"id": "dnr-041", "action": "escalate_human", "autonomy": "human_approval", "handoff": {"case_id": "dnr-041", "recommended_action": "escalate_human", "summary": "DNR claim"}}
+{"id": "dnr-042", "action": "escalate_human", "autonomy": "human_approval", "handoff": {"case_id": "dnr-042", "recommended_action": "escalate_human", "summary": "DNR claim"}}
+{"id": "dnr-043", "action": "escalate_human", "autonomy": "human_approval", "handoff": {"case_id": "dnr-043", "recommended_action": "escalate_human", "summary": "DNR claim"}}
+{"id": "dnr-044", "action": "escalate_human", "autonomy": "human_approval", "handoff": {"case_id": "dnr-044", "recommended_action": "escalate_human", "summary": "DNR claim"}}
+{"id": "dnr-045", "action": "escalate_human", "autonomy": "human_approval", "handoff": {"case_id": "dnr-045", "recommended_action": "escalate_human", "summary": "DNR claim"}}
+{"id": "dnr-046", "action": "escalate_human", "autonomy": "human_approval", "handoff": {"case_id": "dnr-046", "recommended_action": "escalate_human", "summary": "DNR claim"}}
+{"id": "dnr-047", "action": "escalate_human", "autonomy": "human_approval", "handoff": {"case_id": "dnr-047", "recommended_action": "escalate_human", "summary": "DNR claim"}}
 {"id": "dnr-048", "action": "escalate_human", "autonomy": "human_approval", "handoff": {"case_id": "dnr-048", "recommended_action": "escalate_human", "summary": "DNR claim"}}
-{"id": "dnr-049", "action": "escalate_human", "autonomy": "human_approval", "handoff": {"case_id": "dnr-049", "recommended_action": "escalate_human", "summary": "DNR claim"}}
-{"id": "dnr-050", "action": "reship", "autonomy": "autonomous_with_audit", "reason_code": "WINDOW_ELAPSED_CLEAN_BUYER"}
-{"id": "dnr-051", "action": "reship", "autonomy": "autonomous_with_audit", "reason_code": "WINDOW_ELAPSED_CLEAN_BUYER"}
-{"id": "dnr-052", "action": "reship", "autonomy": "autonomous_with_audit", "reason_code": "RETURN_TO_SENDER"}
-{"id": "dnr-053", "action": "reship", "autonomy": "autonomous_with_audit", "reason_code": "RETURN_TO_SENDER"}
-{"id": "dnr-054", "action": "check_carrier", "autonomy": "autonomous"}
-{"id": "dnr-055", "action": "check_carrier", "autonomy": "autonomous"}
-{"id": "dnr-056", "action": "close_no_action", "autonomy": "autonomous"}
-{"id": "dnr-057", "action": "close_no_action", "autonomy": "autonomous"}
-{"id": "dnr-058", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-059", "action": "wait", "autonomy": "autonomous"}
-{"id": "dnr-060", "action": "reship", "autonomy": "human_approval", "reason_code": "WINDOW_ELAPSED_CLEAN_BUYER", "handoff": {"case_id": "dnr-060", "recommended_action": "reship", "summary": "DNR claim"}}
+{"id": "dnr-049", "action": "reship", "autonomy": "human_approval", "reason_code": "GPS_MISMATCH", "handoff": {"case_id": "dnr-049", "recommended_action": "reship", "summary": "DNR claim"}}
+{"id": "dnr-050", "action": "partial_refund", "autonomy": "human_approval", "reason_code": "HUMAN_APPROVED_PARTIAL", "handoff": {"case_id": "dnr-050", "recommended_action": "partial_refund", "summary": "DNR claim"}}
+{"id": "dnr-051", "action": "escalate_human", "autonomy": "human_approval", "handoff": {"case_id": "dnr-051", "recommended_action": "escalate_human", "summary": "DNR claim"}}
+{"id": "dnr-052", "action": "escalate_human", "autonomy": "human_approval", "handoff": {"case_id": "dnr-052", "recommended_action": "escalate_human", "summary": "DNR claim"}}
+{"id": "dnr-053", "action": "reship", "autonomy": "autonomous_with_audit", "reason_code": "WINDOW_ELAPSED_CLEAN_BUYER"}
+{"id": "dnr-054", "action": "reship", "autonomy": "autonomous_with_audit", "reason_code": "WINDOW_ELAPSED_CLEAN_BUYER"}
+{"id": "dnr-055", "action": "reship", "autonomy": "autonomous_with_audit", "reason_code": "RETURN_TO_SENDER"}
+{"id": "dnr-056", "action": "reship", "autonomy": "autonomous_with_audit", "reason_code": "RETURN_TO_SENDER"}
+{"id": "dnr-057", "action": "check_carrier", "autonomy": "autonomous"}
+{"id": "dnr-058", "action": "check_carrier", "autonomy": "autonomous"}
+{"id": "dnr-059", "action": "close_no_action", "autonomy": "autonomous"}
+{"id": "dnr-060", "action": "close_no_action", "autonomy": "autonomous"}
+{"id": "dnr-061", "action": "request_info", "autonomy": "autonomous"}
+{"id": "dnr-062", "action": "request_info", "autonomy": "autonomous"}
+{"id": "dnr-063", "action": "reship", "autonomy": "human_approval", "reason_code": "WINDOW_ELAPSED_CLEAN_BUYER", "handoff": {"case_id": "dnr-063", "recommended_action": "reship", "summary": "DNR claim"}}

@@ -1,6 +1,7 @@
 """Regression gate: exit 1 if eval metrics regress past evals/gate_thresholds.json."""
 import json, subprocess, sys
 g=json.load(open("evals/gate_thresholds.json"))
+subprocess.run([sys.executable,"tests_consistency.py"],check=True)  # docs must match policy.json
 subprocess.run([sys.executable,"baseline.py"],check=True)  # swap for the phase 2 agent runner
 sys.path.insert(0,"evals"); from score import score
 s=score(g["agent_outputs"],g["agent_multiturn_outputs"])["overall"]; bad=[]

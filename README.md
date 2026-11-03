@@ -18,33 +18,38 @@ An LLM agent can resolve most of these tickets. The real question is *what it ma
 **The matrix in one line:** gather information freely, reship before refunding, move small money with a reason code and an audit trail, and put anything adversarial, high-value or account-affecting in front of a human with a full handoff.
 
 ## Eval pack (`evals/`)
-- **60 single-turn cases** (`cases.jsonl`): 14 easy, 14 ambiguous, 19 abuse (including 8 prompt-injection variants and repeat high-value claims), 13 edge (including category caps).
+- **63 single-turn cases** (`cases.jsonl`): 14 easy, 14 ambiguous, 19 abuse (including 8 prompt-injection variants and repeat high-value claims), 13 edge (including category caps), and 3 benign look-alikes. The look-alikes are legitimate buyers whose text resembles an injection.
 - **14 multi-turn conversations** (`multiturn.jsonl`, 31 turns), covering:
   - the buyer changing their story
   - "found it" after a refund or reship
-  - "found it" and then missing again
   - escalation handoff with context preserved
   - injection partway through a conversation
   - a seller adding evidence
-- Each case or turn carries the expected action, the expected autonomy level, a must-not-do list and, where needed, a required reason code or handoff.
+- **Injection routing:** an instruction-like message puts the ticket on hold and escalates it to a human. It **never** flags the buyer, because text can be planted or quoted innocently. The `injection_false_positive_rate` and `wrongful_flag_or_deny` metrics track the harm a detector can do.
 
 ## Metrics: baseline vs agent target
 The baseline is measured on the eval pack. **The agent column shows phase 2 targets, not results.**
 
 | Metric | Baseline (rule-based) | **Phase 2 target** |
 |---|---|---|
-| Unsafe-autonomy rate (must-not-do, or below the required level) | 44.0% | **0%** |
-| Wrongful money-action rate | 16.5% | **≤ 2%** |
+| Unsafe-autonomy rate | 37.2% | **0 failures on the pack** (see limits below) |
+| Wrongful money-action rate | 18.1% | **≤ 2%** |
 | Fraud loss on abuse cases (synthetic $) | $400 | **$0** |
-| Escalation recall / precision | 38% / 100% | **≥ 95% / ≥ 80%** |
-| Escalation rate | 20.9% | **~40%** (what the pack's mix implies) |
-| First-contact resolution | 30.8% | **≥ 50%** |
-| Action accuracy | 45.1% | **≥ 85%** |
-| Incomplete handoffs | 30 | **0** |
-| Cost per correct resolution (assumed $0.40 per agent decision, $6 per human touch) | $3.48 | **≤ $3.00** |
-| Multi-turn conversations fully correct | 0/14 | **≥ 12/14** |
+| Injection false positives on benign look-alikes | 3/3 (100%) | **0/3** |
+| Escalation recall / precision | 54% / 90% | **≥ 95% / ≥ 80%** |
+| First-contact resolution | 35.1% | **≥ 50%** |
+| Action accuracy | 57.4% | **≥ 85%** |
+| Incomplete handoffs | 40 | **0** |
+| Cost per correct resolution (assumed $0.40 per agent decision, $6 per human touch) | $3.81 | **≤ $3.00** |
+| Multi-turn conversations fully correct | 1/14 | **≥ 12/14** |
 
-The baseline gets every easy case right. It misses injection, signatures, contents claims, changing stories and seller-tier nuance, and its handoffs carry bare fields only. Closing those gaps is phase 2.
+The baseline's deterministic injection pre-filter catches every attack. It also catches all 3 benign look-alikes. That shows why phase 2 needs a separate classifier behind the pre-filter, and why the pre-filter's result can only ever lead to escalation, never to a flag.
+
+## Statistical limits (read before trusting the numbers)
+- **Zero failures in about 60 cases only shows the true unsafe rate is below roughly 5%, at 95% confidence** (the rule of three: 3/n). A claim of "0% unsafe" would need hundreds of cases per risk slice.
+- **The pack was written by the policy author,** so it risks overfitting. A held-out set and an adversarial set written by someone else are future work.
+- **An LLM agent is nondeterministic,** so a single-run gate can be flaky. Phase 2 needs record/replay for CI and repeated live runs with confidence intervals.
+- **The targets were set before any agent results.** At about 40% escalation, cost per resolution is mostly the cost of human touches.
 
 ```bash
 python3 baseline.py && python3 evals/score.py      # full report -> evals/baseline_report.md
@@ -54,8 +59,17 @@ python3 evals/gate.py                              # or: make gate
 ## Regression gate
 `evals/gate.py` (or `make gate`, with a CI workflow in `.github/workflows/eval-gate.yml`) reruns the agent and fails if any metric falls past the locked floors in `evals/gate_thresholds.json`. That includes unsafe autonomy, wrongful refunds, fraud loss, missing reason codes, incomplete handoffs and escalation recall. A policy change that loosens a cap is caught before it ships. Floors ratchet up as the agent improves.
 
-## Phase 2
-- An LLM agent with scoped tools behind a policy layer that enforces `policy.json` outside the model.
-- Replace the baseline in the gate, hit the targets above, then ratchet the gate up to them.
-- A small demo UI: a ticket view showing the recommendation, cited evidence, the handoff card and approve/override buttons.
-- Red-team expansion: more injection variants and longer multi-turn manipulation.
+## Consistency
+`policy.json` is the single source of truth. `policy_engine.py` derives buyer risk, caps and autonomy levels from it in code, never in the model. `tests_consistency.py` fails the gate if the matrix's thresholds drift from the policy file.
+
+## Phase 2 (planned architecture)
+- **A typed Python workflow:** code owns the state machine. The LLM only extracts structured facts (claim type, story change, injection suspicion) and drafts the buyer reply and handoff summary.
+- **A pure policy engine** (`policy_engine.py`) shared by the agent and the scorer. Money and account tools are reachable only through the engine.
+- **Mock tools** over JSON fixtures, and **record/replay of LLM responses** so CI is free and deterministic.
+- A small demo UI on replayed traces.
+
+## Future, when paid
+- Address confirmation before reship, a stale-stock check, and cost-of-goods caps. Keys are stubbed in `policy.json`.
+- Recalibrated repeat high-value rule tests, and an hourly dollar-velocity breaker wired into the evals. The breaker is defined in `policy.json` and the engine but has no cases yet.
+- Fail-closed cases (tool timeout, bad carrier data, money promised before approval, PII leakage), a held-out set, and a legitimate-buyer harm metric.
+- A separate injection classifier, unit tests for the engine, and nightly live runs with confidence intervals.

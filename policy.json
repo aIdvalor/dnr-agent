@@ -1,24 +1,33 @@
 {
-  "_note": "Synthetic, generic marketplace policy. All dollar limits live here; code and docs read from this file.",
+  "_note": "Synthetic, generic marketplace policy. SINGLE SOURCE OF TRUTH: policy_engine.py reads it, docs tables are generated from it (scripts/render_docs.py), and tests fail if docs drift.",
   "value_bands_usd": {"low_max": 100, "mid_max": 500},
   "wait_days_after_delivery": 3,
   "policy_window_days": 40,
-  "serial_claim_threshold_12m": 4,
-  "new_account_days": 14,
-  "repeat_high_value": {"min_value_usd": 100, "max_money_actions": 1, "window_days": 90},
-  "per_buyer_autonomous_spend_30d_usd": 150,
-  "reship_first_when_in_stock": true,
-  "reason_code_required_for": ["reship", "partial_refund", "full_refund", "reverse_refund"],
-  "reason_codes": ["NO_DELIVERY_SCAN", "RETURN_TO_SENDER", "GPS_MISMATCH", "WINDOW_ELAPSED_CLEAN_BUYER", "HUMAN_APPROVED_PARTIAL", "FOUND_AFTER_REFUND"],
+  "thin_detail_max_words": 4,
+  "buyer_risk_thresholds": {
+    "serial_claims_12m": 4,
+    "medium_claims_12m": 2,
+    "medium_account_age_days": 90,
+    "new_account_days": 14,
+    "new_account_high_risk_min_value_usd": 100,
+    "chargeback_pattern": {"min_chargebacks_12m": 1, "min_claims_12m": 2}
+  },
   "autonomous_money_cap_usd": {
-    "_shape": "category -> buyer_risk -> max order value the agent may refund/reship at autonomous_with_audit; above it is human_approval; null = never autonomous",
+    "_shape": "category -> derived buyer_risk -> order value strictly below which money actions are autonomous_with_audit; above is human_approval; null = agent never takes a money action (it escalates with a handoff and a human decides)",
     "general":     {"low": 100, "medium": 50, "high": null},
     "electronics": {"low": 50,  "medium": 25, "high": null},
     "luxury":      {"low": 0,   "medium": 0,  "high": null}
   },
-  "buyer_risk": {
-    "low":    "0-1 DNR claims/12m and account > 90 days",
-    "medium": "2-3 claims/12m, or account <= 90 days",
-    "high":   ">= serial_claim_threshold, any chargeback with >=2 claims, injection attempt, or new account with mid/high value"
-  }
+  "repeat_high_value": {"min_value_usd": 50, "max_money_actions": 1, "window_days": 90},
+  "per_buyer_autonomous_spend_30d_usd": 150,
+  "velocity_breaker": {"max_autonomous_usd_per_hour": 500, "action_when_tripped": "human_approval"},
+  "reship": {"first_when_in_stock": true, "requires_address_confirmation": false, "_future": "address confirmation + stale-stock check: future, when paid", "max_stock_age_minutes": 30},
+  "fail_closed_on": ["tool_error", "invalid_carrier_data", "stale_stock_for_reship"],
+  "injection": {
+    "routing": "escalate_human",
+    "never": ["flag_fraud", "deny"],
+    "prefilter_patterns": ["\\bsystem\\s*(override)?\\s*:", "ignore (the )?(policy|previous|carrier)", "</?policy>", "(print|show|reveal).*(system|instructions|tool)", "already approved", "override approval", "then execute"]
+  },
+  "reason_code_required_for": ["reship", "partial_refund", "full_refund", "reverse_refund"],
+  "reason_codes": ["NO_DELIVERY_SCAN", "RETURN_TO_SENDER", "GPS_MISMATCH", "WINDOW_ELAPSED_CLEAN_BUYER", "HUMAN_APPROVED_PARTIAL", "FOUND_AFTER_REFUND"]
 }
