@@ -325,7 +325,7 @@
       "Anything in the message to verify with the carrier?"
      ]
     },
-    "reply": "Thanks for checking with your neighbors and the front desk. A specialist is reviewing a resolution for your order now; we'll update you within one business day."
+    "reply": "I understand you're asking for the full $180 since nothing arrived. I've passed that request to a specialist, who will review it and reply within one business day. I can't confirm any refund until that review is done."
    }
   ],
   "title": "Human approval voided when the proposal changes"

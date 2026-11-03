@@ -13,6 +13,7 @@ def reply_for(d):
     a, s = d["action"], d["status"]
     if a == "reship" and s == "executed": return "So sorry it hasn't turned up. We've sent a replacement to your confirmed address and you'll get tracking shortly."
     if a == "escalate_human": return "Thanks for letting us know. I've passed your case to a specialist who will review the delivery details and get back to you within one business day."
+    if s == "pending_human" and a == "full_refund": return "I understand you're asking for the full $180 since nothing arrived. I've passed that request to a specialist, who will review it and reply within one business day. I can't confirm any refund until that review is done."
     if s == "pending_human": return "Thanks for checking with your neighbors and the front desk. A specialist is reviewing a resolution for your order now; we'll update you within one business day."
     return "Thanks. We've applied the approved resolution to your order; you'll see a confirmation email shortly."
 recs = {"_provenance": "hand-authored stand-ins for LLM output; re-record with DNR_LIVE=1 DNR_RECORD=1"}
