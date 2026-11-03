@@ -1,6 +1,45 @@
 # DNR Agent: a governed "delivered but not received" resolution agent
 
-**Phase 1: the policy and an eval pack, not a model.** Synthetic data only.
+> **⚠️ Proof of concept.** All orders, buyers, sellers and amounts are **synthetic**. The demo's LLM outputs are **hand-written replay stand-ins, not live model calls**. The eval numbers below come from **deterministic rules** (no model in the loop).
+
+## 60-second reviewer path
+1. **Problem:** the carrier says "delivered", the buyer says it never arrived. Refund everyone and you invite abuse. Deny everyone and you lose good buyers. The question is what an AI agent may decide without a human.
+2. **Architecture:** code owns every decision. The LLM only reads and writes text.
+```mermaid
+flowchart LR
+  M[Buyer message] --> X["LLM: extract facts<br/>(claim, story, injection suspicion)"]
+  T["Mock tools<br/>order · carrier · history"] --> E
+  X --> E["Policy engine<br/>pure functions over policy.json"]
+  E -->|allowed + blocked actions, autonomy level| W[Typed workflow]
+  W -->|under cap| A[Act + audit log]
+  W -->|risky| H["Human handoff<br/>approval bound to proposal hash"]
+  W --> R[LLM: draft reply<br/>no promises before approval]
+```
+3. **Governance:** see the [Autonomy matrix](AUTONOMY_MATRIX.md), which assigns each action one of four levels (autonomous / autonomous with audit / human approval / never), and [policy.json](policy.json).
+4. **Demo:** _[live demo link: placeholder]_. Locally, open `demo/index.html` (no server needed).
+5. **Run the evals with one command:** `python3 evals/gate.py`. It checks that the docs match the policy, runs the baseline and enforces the regression floors. `python3 evals/run_workflow.py && python3 evals/score.py evals/workflow_outputs.jsonl evals/workflow_multiturn_outputs.jsonl` scores the workflow.
+
+## Baseline vs policy-engine workflow (full eval pack: 63 cases + 31 multi-turn turns)
+Both columns are **deterministic rules**. For the workflow, a keyword extractor stands in for the LLM extraction step, so these numbers measure the policy engine, not a model.
+
+| Metric | Naive baseline | Policy-engine workflow |
+|---|---|---|
+| **Unsafe-autonomy rate** (must-not-do, or acting below the required level) | 37.2% | **5.3%** |
+| Action accuracy | 57.4% | 90.4% |
+| Wrongful money-action rate | 18.1% | 5.3% |
+| Fraud loss on abuse cases (synthetic) | $400 | $0 |
+| Escalation recall / precision | 54% / 90% | 98% / 94% |
+| Injection false positives on benign look-alikes | 3/3 | 3/3 |
+| Wrongful fraud flags or denials | 0 | 0 |
+| Incomplete handoffs | 40 | 0 |
+| First-contact resolution | 35.1% | 41.5% |
+| Cost per correct resolution (assumed $0.40 per agent decision, $6 per human touch) | $3.81 | $3.87 |
+| Multi-turn conversations fully correct | 1/14 | 9/14 |
+
+**Caveats:**
+- The workflow's rules and the eval pack were written by the same author, so expect overfitting. A held-out set is in Next steps.
+- Both agents use the same keyword pre-filter for injections, which is why both escalate all 3 benign look-alikes. A separate classifier is the fix.
+- Cost stays flat because safer routing sends more cases to humans.
 
 ## Problem
 Marketplaces see claims where the carrier marks a package "delivered" and the buyer says it never arrived. Refunding everyone invites abuse. Denying everyone loses good buyers, and the losses turn into chargebacks. Most cases are easy, a few are adversarial, and the hard part is telling them apart quickly.
@@ -78,7 +117,7 @@ Open **`demo/index.html`** directly in a browser; it needs no server. It steps t
 - **Mock tools** over JSON fixtures, and **record/replay of LLM responses** so CI is free and deterministic.
 - A small demo UI on replayed traces.
 
-## Future, when paid
+## Next steps
 - Address confirmation before reship, a stale-stock check, and cost-of-goods caps. Keys are stubbed in `policy.json`.
 - Recalibrated repeat high-value rule tests, and an hourly dollar-velocity breaker wired into the evals. The breaker is defined in `policy.json` and the engine but has no cases yet.
 - Fail-closed cases (tool timeout, bad carrier data, money promised before approval, PII leakage), a held-out set, and a legitimate-buyer harm metric.

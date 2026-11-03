@@ -25,6 +25,7 @@ pre{white-space:pre-wrap;font-size:12px;color:#c8d3ee;margin:0;max-height:260px;
 .why{max-width:1100px;margin:0 auto;padding:0 20px 40px;color:var(--mute);font-size:13px}
 .tag{font-size:11px;color:var(--mute)}
 </style></head><body>
+<div style="background:#3a2a0c;border-bottom:1px solid #f0a63a;color:#ffd99a;padding:10px 20px;text-align:center;font-size:14px"><b>Proof of concept.</b> Synthetic data only. Model outputs shown are <b>hand-written replay stand-ins, not live model calls</b>.</div>
 <header><span class="pill">Proof of concept</span><span class="pill">Synthetic data</span><span class="pill" id="mode"></span>
 <h1>DNR Agent: “delivered but not received,” resolved under governance</h1>
 <p>The LLM only <b>extracts facts</b> and <b>drafts replies</b>. A pure policy engine decides what is allowed, the workflow executes it, and a human approves anything risky. An approval is bound to the exact proposal, so it is void if the proposal changes.</p></header>
@@ -34,7 +35,7 @@ pre{white-space:pre-wrap;font-size:12px;color:#c8d3ee;margin:0;max-height:260px;
 const D=/*DATA*/null; let S=0,T=0; const $=s=>document.querySelector(s);
 const esc=s=>String(s??'—').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const L={autonomous:'Autonomous',autonomous_with_audit:'Autonomous + audit',human_approval:'Human approval'};
-$('#mode').textContent='LLM: '+D[0].steps[0].llm_mode;
+$('#mode').textContent='LLM: '+D[0].steps[0].llm_mode+' (hand-written stand-ins)';
 function tabs(){$('#tabs').innerHTML=D.map((d,i)=>`<button class="tab ${i==S?'on':''}" onclick="S=${i};T=0;draw()">Scenario ${i+1}<small>${esc(d.title)}</small></button>`).join('')}
 function draw(){tabs();const d=D[S],s=d.steps[T],x=s.decision,f=s.facts;
 const status={executed:'✅ Executed by agent',executed_after_approval:'✅ Executed after human approval',pending_human:'⏸ Waiting for a human'}[x.status];

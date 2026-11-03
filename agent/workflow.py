@@ -37,6 +37,24 @@ def decide(facts, order, carrier, history, msg):
     else: block(["full_refund"], f"Value >= ${P['value_bands_usd']['low_max']}: partial first, human approves")
     return dict(action=act, autonomy="human_approval", reason_code="HUMAN_APPROVED_PARTIAL" if act=="partial_refund" else "HUMAN_REVIEW_FULL", amount_usd=min(amt, v), risk=risk, blocked=blocked)
 
+def route(facts, order, carrier, history, msg, msgs=None, prior_money=False):
+    """Deterministic pre-checks (engine + carrier data), then decide(). Shared by the demo and the eval runner."""
+    v = order["value_usd"]; risk = pe.buyer_risk(history, v); ev = carrier["events"]; T = P["buyer_risk_thresholds"]
+    H = lambda a, rc=None: dict(action=a, autonomy="human_approval", reason_code=rc, risk=risk, blocked={})
+    if pe.injection_prefilter(msg) or facts.get("injection_suspected"): return decide(facts, order, carrier, history, msg)
+    if history["dnr_claims_12m"] >= T["serial_claims_12m"]: return H("flag_fraud")
+    if facts.get("claim_type") == "found_it":
+        return H("reverse_refund", "FOUND_AFTER_REFUND") if prior_money else dict(action="close_no_action", autonomy="autonomous", reason_code=None, risk=risk, blocked={})
+    if facts.get("claim_type") == "contents" or (facts.get("story_changed") and not facts.get("amount_demanded_usd")): return H("escalate_human")
+    if order.get("seller_evidence"): return H("escalate_human")
+    if "return_to_sender" in ev or "delivered" not in ev:
+        if "return_to_sender" not in ev and ev[-1:] != ["label_created"]: return dict(action="check_carrier", autonomy="autonomous", reason_code=None, risk=risk, blocked={})
+        return decide(facts, order, carrier | {"days_since_delivery": 99, "gps_match": None}, history, msg)
+    if (carrier["days_since_delivery"] > P["policy_window_days"] or v >= P["value_bands_usd"]["mid_max"] or "signature_obtained" in ev
+        or order.get("signature_required") or order.get("seller_tier") == "top_rated" or risk == "high"
+        or pe.repeat_cap_hit(history, v)): return H("escalate_human")
+    return decide(facts, order, carrier, history, msg)
+
 def proposal_hash(d): return hashlib.sha256(json.dumps({k: d.get(k) for k in ("action","amount_usd","reason_code")}, sort_keys=True).encode()).hexdigest()[:10]
 
 def handoff(case_id, d, facts, order, carrier, history, msgs):
@@ -54,7 +72,7 @@ def run(case_id, order_id, buyer_id, turns, approvals=None):
     steps, msgs, approved = [], [], None
     for i, m in enumerate(turns):
         msgs.append(m); facts, mode = llm.extract(msgs)
-        d = decide(facts, order, carrier, history, m); h = proposal_hash(d)
+        d = route(facts, order, carrier, history, m); h = proposal_hash(d)
         status, note = "executed", None
         if d["autonomy"] == "human_approval":
             if approved and approved != h:
