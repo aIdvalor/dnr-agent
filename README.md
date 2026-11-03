@@ -1,9 +1,11 @@
-# DNR Agent: a governed "delivered but not received" resolution agent
+# DNR Agent: how much should an AI agent decide on its own when a package goes missing?
+
+A governed resolution agent for "delivered but not received" claims. In this proof of concept, putting a policy engine in charge of every decision **cut unsafe autonomy from 37% to 5%** compared with a naive agent, raised action accuracy to 90%, and brought synthetic fraud loss to $0.
 
 > **⚠️ Proof of concept.** All orders, buyers, sellers and amounts are **synthetic**. The demo's LLM outputs are **hand-written replay stand-ins, not live model calls**. The eval numbers below come from **deterministic rules** (no model in the loop).
 
 ## 60-second reviewer path
-1. **Problem:** the carrier says "delivered", the buyer says it never arrived. Refund everyone and you invite abuse. Deny everyone and you lose good buyers. The question is what an AI agent may decide without a human.
+1. **Problem:** the carrier says "delivered" and the buyer says it never came. Refund everyone and you invite abuse. Deny everyone and you lose good buyers to chargebacks. For a marketplace operator, the real question isn't whether an agent can handle these tickets. It's which decisions the agent may make without a human, and how you prove it stays inside those limits.
 2. **Architecture:** code owns every decision. The LLM only reads and writes text.
 ```mermaid
 flowchart LR
