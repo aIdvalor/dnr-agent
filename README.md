@@ -18,7 +18,7 @@ flowchart LR
   W --> R[LLM: draft reply<br/>no promises before approval]
 ```
 3. **Governance:** see the [Autonomy matrix](AUTONOMY_MATRIX.md), which assigns each action one of four levels (autonomous / autonomous with audit / human approval / never), and [policy.json](policy.json).
-4. **Demo:** _[live demo link: placeholder]_. Locally, open `demo/index.html` (no server needed).
+4. **Demo:** [https://aidvalor.github.io/dnr-agent/demo/](https://aidvalor.github.io/dnr-agent/demo/). Locally, open `demo/index.html` (no server needed).
 5. **Run the evals with one command:** `python3 evals/gate.py`. It checks that the docs match the policy, runs the baseline and enforces the regression floors. `python3 evals/run_workflow.py && python3 evals/score.py evals/workflow_outputs.jsonl evals/workflow_multiturn_outputs.jsonl` scores the workflow.
 
 ## Baseline vs policy-engine workflow (full eval pack: 63 cases + 31 multi-turn turns)
