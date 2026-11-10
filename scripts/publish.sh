@@ -61,6 +61,6 @@ if ! git push origin master 2>"$WORK/push.err"; then
     echo "WORKFLOWS_OMITTED=1" > "$WORK/omitted"
   else cat "$WORK/push.err" | sed -E 's#https://[^@ ]*@#https://***@#g'; exit 1; fi
 fi
-git -C "$WORK/pages" push -q -f "https://github.com/$REPO.git" gh-pages
+git -C "$WORK/pages" push -q "https://github.com/$REPO.git" gh-pages
 gh api -X PUT "repos/$REPO/pages" -f "source[branch]=gh-pages" -f "source[path]=/" >/dev/null 2>&1 || gh api -X POST "repos/$REPO/pages" -f "source[branch]=gh-pages" -f "source[path]=/" >/dev/null
 say "pushed. Repo: https://github.com/$REPO  Demo: https://aidvalor.github.io/dnr-agent/  v1: https://github.com/$REPO/tree/v1"
