@@ -100,6 +100,8 @@ export interface RunResult {
   finishedCleanly: boolean; // model called submit_outcome within the step cap with no fatal error
   error?: string;
   latencyMs: number;
+  /** Time spent waiting on rate-limit pacing or 429 backoff (live only); excluded from latencyMs. */
+  waitedMs?: number;
   usage: { inputTokens: number; outputTokens: number };
   costUsd: number;
 }

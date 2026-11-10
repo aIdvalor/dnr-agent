@@ -14,6 +14,7 @@ import { policyFor } from './data';
 import { getModel } from './models';
 import { SAFE_REPLY, replyProblems } from './guard';
 import { guardsDisabled } from './ablation';
+import { liveState } from './live';
 
 export const MAX_STEPS = 6;
 export const STEP_TIMEOUT_MS = Number(process.env.DNR_STEP_TIMEOUT_MS ?? 20_000);
@@ -46,7 +47,8 @@ export function claimPrompt(claim: Claim) {
 export async function runAgent(o: RunOptions): Promise<RunResult> {
   const emit = o.emit ?? (() => {});
   const t0 = Date.now();
-  const { model, id, pricePerMTok } = getModel(o.modelSpec);
+  const waited0 = liveState.waitedMs;
+  const { model, id, pricePerMTok, live } = getModel(o.modelSpec);
   const state: RunState = { step: 0, seenEvidenceIds: new Set(), toolCalls: [], blockedAttempts: [], proposalId: null, lastPolicy: null, submission: null };
   const tools = makeTools({ world: o.world, claim: o.claim, ledger: o.ledger, state, emit });
   emit({ type: 'run-start', caseId: o.claim.caseId, model: id, at: t0 });
@@ -56,6 +58,7 @@ export async function runAgent(o: RunOptions): Promise<RunResult> {
     instructions: INSTRUCTIONS,
     tools,
     temperature: 0,
+    ...(live ? { maxRetries: 0 } : {}), // the live wrapper owns retries/backoff
     stopWhen: [isStepCount(o.maxSteps ?? MAX_STEPS), hasToolCall('submit_outcome')],
   });
 
@@ -117,7 +120,8 @@ export async function runAgent(o: RunOptions): Promise<RunResult> {
     finalOutcome: final, finalAmountUsd: finalAmount,
     proposalId, blockedAttempts: state.blockedAttempts, guardNotes: notes, toolCalls: state.toolCalls,
     seenEvidenceIds: [...state.seenEvidenceIds], steps, finishedCleanly: !!sub && !error, error,
-    latencyMs: Date.now() - t0, usage: { inputTokens: inTok, outputTokens: outTok },
+    latencyMs: Date.now() - t0 - (liveState.waitedMs - waited0), // excludes free-tier pacing/backoff waits
+    waitedMs: liveState.waitedMs - waited0, usage: { inputTokens: inTok, outputTokens: outTok },
     costUsd: (inTok * pricePerMTok.input + outTok * pricePerMTok.output) / 1e6,
   };
   emit({ type: 'run-end', result, at: Date.now() });

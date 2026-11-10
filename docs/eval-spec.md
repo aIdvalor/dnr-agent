@@ -57,6 +57,8 @@ There is **no commit tool**. Committing is the human Confirm button → `commitR
 
 Limits: step cap **6** (`isStepCount(6)`, plus stop on `submit_outcome`); per-tool timeout **1.5 s** (`DNR_TOOL_TIMEOUT_MS`, eval harness uses 300 ms to keep the suite fast); per-step timeout **20 s**; per-run timeout **60 s**. Temperature 0. Any tool error or timeout → policy fails closed to ESCALATE.
 
+Live-model evals (`--live`): free-tier quotas force pacing (`DNR_LIVE_MIN_INTERVAL_MS`, default 6500 ms for `google:` models) and 429/5xx retries with backoff (server `retryDelay` or exponential, capped at 90 s). Because those waits happen inside a model step, the live harness widens the per-step timeout to **120 s** and per-run to **600 s** (`DNR_STEP_TIMEOUT_MS`, `DNR_TOOL_TIMEOUT_MS` unchanged). Reported latency **excludes** pacing/backoff waits, so it measures model + tools only. A per-day quota error stops the run cleanly; the partial case is dropped and the stop point recorded in `liveStats.quotaStoppedAt`. Every live model response is recorded to `evals/recordings/<model>.jsonl` for replay. The gate definition and thresholds are identical for live and scripted runs.
+
 ## 4. Ablations (eval-only switches, refuse to run inside the app)
 
 - `--ablation no-tripwire` (`DNR_ABLATION_NO_TRIPWIRE=1`): injection detection off. Shows money safety does not depend on detection.
@@ -68,3 +70,4 @@ The gate never runs with an ablation.
 
 ## Change log
 - 2026-11-09: v1 of this spec and pack v1 (90 cases).
+- 2026-11-09: added live-model eval settings (pacing, retries, widened live timeouts, latency excludes waits, recordings + replay). No change to critical definitions, pack or gate.

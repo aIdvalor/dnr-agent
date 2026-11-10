@@ -8,9 +8,14 @@
  */
 import type { LanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
+import fs from 'node:fs';
+import path from 'node:path';
 import { gateway } from '@ai-sdk/gateway';
 import { openai } from '@ai-sdk/openai';
 import { anthropic } from '@ai-sdk/anthropic';
+import { google } from '@ai-sdk/google';
+import { paced } from './live';
+import type { LanguageModelV4 } from '@ai-sdk/provider';
 
 export interface ModelChoice { model: LanguageModel; id: string; live: boolean; pricePerMTok: { input: number; output: number } }
 
@@ -18,23 +23,61 @@ const price = () => ({ input: Number(process.env.DNR_PRICE_INPUT_PER_MTOK ?? 0),
 
 export function liveModelAvailable(): { ok: boolean; why: string } {
   const spec = process.env.DNR_MODEL;
-  if (!spec) return { ok: false, why: 'DNR_MODEL is not set (e.g. gateway:<provider>/<model>, openai:<model>, anthropic:<model>)' };
+  if (!spec) return { ok: false, why: 'DNR_MODEL is not set (e.g. google:<model>, gateway:<provider>/<model>, openai:<model>, anthropic:<model>)' };
   const [prov] = spec.split(':');
-  const need = prov === 'gateway' ? 'AI_GATEWAY_API_KEY' : prov === 'openai' ? 'OPENAI_API_KEY' : prov === 'anthropic' ? 'ANTHROPIC_API_KEY' : null;
+  const need = prov === 'gateway' ? 'AI_GATEWAY_API_KEY' : prov === 'openai' ? 'OPENAI_API_KEY' : prov === 'anthropic' ? 'ANTHROPIC_API_KEY' : prov === 'google' ? 'GOOGLE_GENERATIVE_AI_API_KEY' : null;
   if (!need) return { ok: false, why: `unknown provider prefix "${prov}"` };
   if (!process.env[need]) return { ok: false, why: `${need} is not set` };
   return { ok: true, why: spec };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Replay: re-plays a recorded live model's responses (step by step) through the real tools, policy
+// and guards. Lets a public demo show real model decisions without any API key.
+export const REPLAY_FILE = process.env.DNR_REPLAY_FILE ?? 'evals/recordings/google_gemini-3.1-flash-lite.jsonl';
+let replayCache: Map<string, any> | null = null;
+function replayIndex(): Map<string, any> {
+  if (replayCache) return replayCache;
+  replayCache = new Map();
+  const f = path.join(process.cwd(), REPLAY_FILE);
+  if (fs.existsSync(f)) for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    const r = JSON.parse(line);
+    if (r.rep !== 0) continue;
+    replayCache.set(`${r.caseId}|${r.step}`, r);
+  }
+  return replayCache;
+}
+export function replayAvailable(caseId: string): boolean { return replayIndex().has(`${caseId.includes('#') ? caseId : caseId + '#0'}|0`); }
+export function replayModelName(): string { return path.basename(REPLAY_FILE, '.jsonl').replace(/^google_/, ''); }
+
+function replayModel() {
+  return new MockLanguageModelV4({
+    provider: 'replay',
+    modelId: `replay:${replayModelName()}`,
+    doGenerate: async ({ prompt }) => {
+      const ids = claimFrom(prompt as any[]);
+      const cid = String(ids.caseId ?? '');
+      const key = `${cid.includes('#') ? cid : cid + '#0'}|${(prompt as any[]).filter((m: any) => m.role === 'assistant').length}`;
+      const r = replayIndex().get(key);
+      if (!r) return { content: [{ type: 'text', text: 'No recorded step for this point; stopping.' }], finishReason: { unified: 'stop', raw: 'replay-end' }, usage: usage(0, 0), warnings: [] } as any;
+      return { content: r.content, finishReason: r.finishReason, usage: usage(r.usage?.inputTokens?.total ?? 0, r.usage?.outputTokens?.total ?? 0), warnings: [] } as any;
+    },
+  });
+}
+
 export function getModel(spec: string): ModelChoice {
+  if (spec === 'replay') return { model: replayModel(), id: `replay:${replayModelName()}`, live: false, pricePerMTok: { input: 0, output: 0 } };
   if (spec === 'scripted') return { model: scriptedModel(false), id: 'scripted', live: false, pricePerMTok: { input: 0, output: 0 } };
   if (spec === 'scripted-adversarial') return { model: scriptedModel(true), id: 'scripted-adversarial', live: false, pricePerMTok: { input: 0, output: 0 } };
   const live = spec === 'live' ? process.env.DNR_MODEL ?? '' : spec;
   const i = live.indexOf(':');
   const prov = live.slice(0, i), id = live.slice(i + 1);
   if (!id) throw new Error('No live model configured. Set DNR_MODEL and the matching API key.');
-  const model = prov === 'gateway' ? gateway(id) : prov === 'openai' ? openai(id) : prov === 'anthropic' ? anthropic(id) : null;
-  if (!model) throw new Error(`Unknown provider "${prov}"`);
+  const base = prov === 'gateway' ? gateway(id) : prov === 'openai' ? openai(id) : prov === 'anthropic' ? anthropic(id) : prov === 'google' ? google(id) : null;
+  if (!base) throw new Error(`Unknown provider "${prov}"`);
+  // Pacing + retry for rate-limited (e.g. free) tiers. DNR_LIVE_MIN_INTERVAL_MS=0 disables pacing.
+  const model = paced(base as unknown as LanguageModelV4, { minIntervalMs: Number(process.env.DNR_LIVE_MIN_INTERVAL_MS ?? 0) });
   return { model, id: live, live: true, pricePerMTok: price() };
 }
 

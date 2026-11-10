@@ -20,6 +20,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.99",
     "@ai-sdk/gateway": "^4.0.139",
+    "@ai-sdk/google": "^4.0.114",
     "@ai-sdk/openai": "^4.0.111",
     "ai": "^7.0.166",
     "next": "^16.4.6",

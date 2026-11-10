@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RunResult, TraceEvent } from '@/lib/types';
 
 type DemoCase = {
-  id: string; label: string; blurb: string; asOf: string;
+  id: string; replay: boolean; label: string; blurb: string; asOf: string;
   claim: { orderId: string; buyerId: string; messages: string[] };
   order: { item: string; category: string; totalUsd: number } | null;
   scans: { scanId: string; code: string; at: string; note?: string; gpsMatchesAddress?: boolean | null }[];
@@ -13,6 +13,7 @@ type DemoCase = {
 type Entry = { proposalId: string; caseId: string; orderId: string; amountUsd: number; reasonCode: string; status: string; createdAt: string; committedAt?: string; rejectedReason?: string };
 
 const MODEL_LABEL: Record<string, string> = {
+  replay: 'Recorded live LLM run (replay, no key)',
   scripted: 'Scripted agent (offline, deterministic)',
   'scripted-adversarial': 'Compromised model (obeys injected text)',
   live: 'Live LLM via AI SDK',
@@ -26,7 +27,8 @@ const OUTCOME_COPY: Record<string, { label: string; cls: string }> = {
 export default function Page() {
   const [cases, setCases] = useState<DemoCase[]>([]);
   const [sel, setSel] = useState('n01');
-  const [model, setModel] = useState('scripted');
+  const [model, setModel] = useState('replay');
+  const [replayModel, setReplayModel] = useState('');
   const [live, setLive] = useState(false);
   const [events, setEvents] = useState<TraceEvent[]>([]);
   const [running, setRunning] = useState(false);
@@ -37,7 +39,7 @@ export default function Page() {
 
   const refreshLedger = useCallback(async () => {
     const r = await fetch('/api/ledger').then((x) => x.json());
-    setLedger(r.entries); setLive(r.live);
+    setLedger(r.entries); setLive(r.live); setReplayModel(r.replayModel ?? '');
   }, []);
   useEffect(() => { fetch('/api/cases').then((r) => r.json()).then(setCases); refreshLedger(); }, [refreshLedger]);
   useEffect(() => { traceEnd.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [events.length]);
@@ -46,7 +48,7 @@ export default function Page() {
 
   async function run() {
     setRunning(true); setEvents([]); setResult(null); setCommitMsg(null);
-    const res = await fetch('/api/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ caseId: sel, model }) });
+    const res = await fetch('/api/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ caseId: sel, model: model === 'replay' && !c?.replay ? 'scripted' : model }) });
     if (!res.ok || !res.body) { setCommitMsg((await res.json()).error ?? 'Run failed'); setRunning(false); return; }
     const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
     for (;;) {
@@ -124,10 +126,11 @@ export default function Page() {
                 ))}
               </div>
               <div className="row runbar">
-                <select value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model">
+                <select value={model === 'replay' && !c.replay ? 'scripted' : model} onChange={(e) => setModel(e.target.value)} aria-label="Model">
+                  <option value="replay" disabled={!c.replay}>{`Recorded ${replayModel || 'live LLM'} run (replay, no key)`}{c.replay ? '' : ' (not recorded)'}</option>
                   <option value="scripted">{MODEL_LABEL.scripted}</option>
                   <option value="scripted-adversarial">{MODEL_LABEL['scripted-adversarial']}</option>
-                  <option value="live" disabled={!live}>{MODEL_LABEL.live}{live ? '' : ' (no key configured)'}</option>
+                  <option value="live" disabled={!live}>{MODEL_LABEL.live}{live ? '' : ' (disabled in demo)'}</option>
                 </select>
                 <button className="primary" onClick={run} disabled={running}>{running ? 'Running…' : 'Run agent'}</button>
               </div>
@@ -139,7 +142,7 @@ export default function Page() {
             {events.length === 0 && <p className="muted">Run the agent to see each tool call, its input, its output and its latency.</p>}
             <ol>
               {events.filter((e) => e.type !== 'tool-call').map((e, i) => {
-                if (e.type === 'run-start') return <li key={i} className="ev start">Run started · model <b>{MODEL_LABEL[e.model] ?? e.model}</b></li>;
+                if (e.type === 'run-start') return <li key={i} className="ev start">Run started · model <b>{e.model.startsWith('replay:') ? `${e.model.slice(7)} (recorded responses replayed through live tools, policy and guards)` : MODEL_LABEL[e.model] ?? e.model}</b></li>;
                 if (e.type === 'guard') return <li key={i} className={`ev guard ${e.level}`}><span className="gl">{e.level === 'blocked' ? 'BLOCKED' : 'GUARD'}</span>{e.message}</li>;
                 if (e.type === 'tool-result') {
                   const call = events.find((x) => x.type === 'tool-call' && x.id === e.id) as Extract<TraceEvent, { type: 'tool-call' }> | undefined;
@@ -184,7 +187,7 @@ export default function Page() {
                   </div>
                 )}
                 {commitMsg && <p className="commitmsg">{commitMsg}</p>}
-                <p className="small muted">{result.latencyMs} ms · {result.toolCalls.length} tool calls · {result.model.startsWith('scripted') ? 'scripted model: no LLM tokens' : `${result.usage.inputTokens + result.usage.outputTokens} tokens · $${result.costUsd.toFixed(4)}`}</p>
+                <p className="small muted">{result.latencyMs} ms · {result.toolCalls.length} tool calls · {result.model.startsWith('scripted') ? 'scripted model: no LLM tokens' : result.model.startsWith('replay:') ? `replayed: ${result.usage.inputTokens + result.usage.outputTokens} tokens when recorded` : `${result.usage.inputTokens + result.usage.outputTokens} tokens · $${result.costUsd.toFixed(4)}`}</p>
               </>
             )}
           </div>

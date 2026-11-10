@@ -3,6 +3,7 @@
  *   npm run eval                       # deterministic suite: scripted + scripted-adversarial models
  *   npm run gate                       # same, exits 1 on any critical violation or regression vs evals/baseline.json
  *   npm run eval:live -- --repeat 3    # live model (needs DNR_MODEL + key + prices), spend-capped
+ *   npm run eval:live -- --resume      # continue an interrupted live run: rows are appended per case, done cases skipped
  * The harness plays the human: it clicks Confirm on every proposal (twice, to test idempotency).
  */
 import fs from 'node:fs';
@@ -16,6 +17,7 @@ const { Ledger } = await import('../lib/ledger');
 const { commitRefund } = await import('../lib/commit');
 const { replyProblems } = await import('../lib/guard');
 const { liveModelAvailable } = await import('../lib/models');
+const { liveState, setRecorder } = await import('../lib/live');
 import type { Claim, RunResult, World } from '../lib/types';
 import type { EvalCase } from './types';
 
@@ -26,6 +28,7 @@ const PACK = opt('--pack', 'v1');
 const LIVE = flag('--live');
 const REPEAT = Number(opt('--repeat', LIVE ? '3' : '1'));
 const ONLY = opt('--only', '');
+const RESUME = flag('--resume');
 const SPEND_CAP = Number(process.env.DNR_SPEND_CAP_USD ?? 2);
 
 const cases: EvalCase[] = fs.readFileSync(`evals/cases/${PACK}.jsonl`, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((c: EvalCase) => !ONLY || c.id.startsWith(ONLY) || c.category === ONLY);
@@ -35,6 +38,21 @@ if (LIVE) {
   if (!a.ok) { console.error(`Live suite not run: ${a.why}.\nNeeded: DNR_MODEL=gateway:<provider>/<model> with AI_GATEWAY_API_KEY (or openai:/anthropic: with that provider's key), plus DNR_PRICE_INPUT_PER_MTOK / DNR_PRICE_OUTPUT_PER_MTOK for the spend cap (DNR_SPEND_CAP_USD, default $2).`); process.exit(2); }
   if (!process.env.DNR_PRICE_INPUT_PER_MTOK || !process.env.DNR_PRICE_OUTPUT_PER_MTOK) { console.error('Live suite refuses to run without DNR_PRICE_INPUT_PER_MTOK and DNR_PRICE_OUTPUT_PER_MTOK (needed to enforce the spend cap).'); process.exit(2); }
 }
+if (LIVE) {
+  // Free-tier pacing and 429 backoff happen inside a step, so the live eval widens the step/run timeouts.
+  // Reported latency excludes those waits (RunResult.waitedMs). The app keeps the 20 s / 60 s limits.
+  process.env.DNR_STEP_TIMEOUT_MS ??= '120000';
+  process.env.DNR_TOTAL_TIMEOUT_MS ??= '600000';
+  if ((process.env.DNR_MODEL ?? '').startsWith('google:')) process.env.DNR_LIVE_MIN_INTERVAL_MS ??= '6500';
+}
+let currentRep = 0;
+const recFile = LIVE ? `evals/recordings/${(process.env.DNR_MODEL ?? 'live').replace(/[^a-z0-9.-]+/gi, '_')}.jsonl` : '';
+if (LIVE) {
+  fs.mkdirSync('evals/recordings', { recursive: true });
+  if (!flag('--append-recordings') && !RESUME) fs.writeFileSync(recFile, '');
+  setRecorder((r) => fs.appendFileSync(recFile, JSON.stringify({ rep: currentRep, ...r }) + '\n'));
+}
+let quotaStoppedAt: string | null = null;
 const MODELS = LIVE ? ['live'] : (opt('--model', '') ? [opt('--model', '')] : ['scripted', 'scripted-adversarial']);
 
 interface TurnScore {
@@ -43,7 +61,7 @@ interface TurnScore {
   outcomeCorrect: boolean; reasonCorrect: boolean; agentAgrees: boolean | null;
   evidence: { applicable: boolean; ok: boolean; unseen: string[]; missing: string[] };
   reliable: boolean; criticals: string[]; blockedAttempts: number; injectionCaught: boolean | null; benignFalsePositive: boolean | null;
-  latencyMs: number; toolCalls: number; steps: number; costUsd: number; tokens: number; guardNotes: string[];
+  latencyMs: number; toolCalls: number; steps: number; costUsd: number; tokens: number; guardNotes: string[]; error?: string; liveModel?: string;
 }
 
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -127,6 +145,7 @@ async function runCase(c: EvalCase, model: string, rep: number): Promise<TurnSco
       benignFalsePositive: c.category === 'benign_lookalike' ? r.finalOutcome === 'ESCALATE' : null,
       latencyMs: r.latencyMs, toolCalls: r.toolCalls.length, steps: r.steps, costUsd: r.costUsd,
       tokens: r.usage.inputTokens + r.usage.outputTokens, guardNotes: r.guardNotes,
+      error: r.error ? r.error.slice(0, 200) : undefined, liveModel: LIVE ? process.env.DNR_MODEL : undefined,
     });
   }
   return out;
@@ -166,7 +185,7 @@ function summarise(model: string, rows: TurnScore[]) {
     })),
     failures: rows.filter((r) => !r.outcomeCorrect || r.criticals.length || !r.reliable || (r.evidence.applicable && !r.evidence.ok)).map((r) => ({
       caseId: r.caseId, turn: r.turn, rep: r.rep, expected: `${r.expected.outcome} $${r.expected.amountUsd}`, got: `${r.final} $${r.finalAmount} (${r.reasonCode})`,
-      criticals: r.criticals, reliable: r.reliable, evidence: r.evidence, guardNotes: r.guardNotes,
+      criticals: r.criticals, reliable: r.reliable, evidence: r.evidence, guardNotes: r.guardNotes, error: r.error,
     })),
   };
   return s;
@@ -177,10 +196,27 @@ const CHECKS = ['policy_enforcement_blocks_out_of_policy_refund', 'injection_car
 const all: Record<string, ReturnType<typeof summarise>> = {};
 const allRows: Record<string, TurnScore[]> = {};
 let spent = 0;
+// Live runs are resumable: every finished case is appended to live-rows.jsonl immediately; --resume reloads
+// rows for the same DNR_MODEL and skips (rep, case) pairs already done, so an interruption costs no quota.
+const liveRowsFile = 'evals/results/live-rows.jsonl';
+fs.mkdirSync('evals/results', { recursive: true });
+let resumed: TurnScore[] = [];
+if (LIVE) {
+  if (RESUME && fs.existsSync(liveRowsFile)) resumed = fs.readFileSync(liveRowsFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((r: TurnScore) => (r.liveModel ?? r.model) === process.env.DNR_MODEL);
+  fs.writeFileSync(liveRowsFile, resumed.map((r) => JSON.stringify(r) + '\n').join(''));
+  if (RESUME) console.error(`[live] resume: ${new Set(resumed.map((r) => `${r.rep}|${r.caseId}`)).size} case-reps already done`);
+}
 for (const m of MODELS) {
-  const rows: TurnScore[] = [];
+  const rows: TurnScore[] = [...resumed];
+  const done = new Set(resumed.map((r) => `${r.rep}|${r.caseId}`));
   outer: for (let rep = 0; rep < REPEAT; rep++) for (const c of cases) {
-    rows.push(...(await runCase(c, m, rep)));
+    currentRep = rep;
+    if (done.has(`${rep}|${c.id}`)) continue;
+    const got = await runCase(c, m, rep);
+    if (LIVE && liveState.quotaExhausted) { quotaStoppedAt = `rep ${rep} case ${c.id}`; console.error(`Daily quota exhausted at ${quotaStoppedAt}; dropping that partial case and stopping.`); break outer; }
+    rows.push(...got);
+    if (LIVE) fs.appendFileSync(liveRowsFile, got.map((g) => JSON.stringify(g) + '\n').join(''));
+    if (LIVE) console.error(`[live] rep ${rep} ${c.id}: ${got.map((g) => `${g.final}${g.criticals.length ? ' CRIT' : ''}${g.outcomeCorrect ? '' : ' MISS'}${g.error ? ' ERR ' + g.error.slice(0, 80) : ''}`).join(', ')} | calls ${liveState.calls} retries ${liveState.retries}`);
     spent = rows.reduce((a, r) => a + r.costUsd, 0);
     if (LIVE && spent > SPEND_CAP) { console.error(`Spend cap $${SPEND_CAP} reached after ${rows.length} runs; stopping.`); break outer; }
   }
@@ -206,8 +242,8 @@ function variance(rows: TurnScore[]) {
 fs.mkdirSync('evals/results', { recursive: true });
 const stamp = new Date().toISOString();
 const tag = (LIVE ? 'live' : 'deterministic') + (ABL ? `-ablation-${ABL}` : '');
-fs.writeFileSync(`evals/results/${tag}.json`, JSON.stringify({ pack: PACK, ablation: ABL || null, at: stamp, repeat: REPEAT, summaries: all, checks: Object.fromEntries(MODELS.map((m) => [m, checkTable(allRows[m])])), variance: Object.fromEntries(MODELS.map((m) => [m, variance(allRows[m])])) }, null, 2));
-fs.writeFileSync(`evals/results/${tag}-rows.jsonl`, Object.values(allRows).flat().map((r) => JSON.stringify(r)).join('\n') + '\n');
+fs.writeFileSync(`evals/results/${tag}.json`, JSON.stringify({ pack: PACK, ablation: ABL || null, liveModel: LIVE ? process.env.DNR_MODEL : null, liveStats: LIVE ? { ...liveState, quotaStoppedAt, repeatRequested: REPEAT } : null, at: stamp, repeat: REPEAT, summaries: all, checks: Object.fromEntries(MODELS.map((m) => [m, checkTable(allRows[m])])), variance: Object.fromEntries(MODELS.map((m) => [m, variance(allRows[m])])) }, null, 2));
+if (!LIVE) fs.writeFileSync(`evals/results/${tag}-rows.jsonl`, Object.values(allRows).flat().map((r) => JSON.stringify(r)).join('\n') + '\n');
 
 for (const m of MODELS) {
   const s = all[m];

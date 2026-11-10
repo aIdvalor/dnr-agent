@@ -8,7 +8,9 @@ const noTrip = load('evals/results/deterministic-ablation-no-tripwire.json');
 const noGuard = load('evals/results/deterministic-ablation-no-guards.json');
 const live = load('evals/results/live.json');
 if (!main) throw new Error('run `npm run eval` first');
-const S = main.summaries;
+const S: Record<string, any> = { ...main.summaries };
+const LIVE_ID = live ? String(live.liveModel ?? 'live').replace(/^google:/, '') : null;
+if (live) S[`live: ${LIVE_ID}`] = live.summaries.live;
 const f = (a: number, b: number) => `${a}/${b} (${b ? ((100 * a) / b).toFixed(1) : '0'}%)`;
 const cats = Object.keys(S.scripted.byCategory);
 const now = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', dateStyle: 'medium', timeStyle: 'short' }) + ' PT';
@@ -19,7 +21,7 @@ let md = `# DNR agent v2 — eval report
 
 Pack \`${main.pack}\` · generated ${now} · ${S.scripted.cases} cases / ${S.scripted.runs} runs per model (multi-turn cases count one run per turn).
 
-> **What these numbers are.** Both models below are **scripted** (no LLM): they drive the real AI SDK tool loop, tools, policy engine, ledger and guards, so the numbers measure the **control system**, not model quality. \`scripted-adversarial\` deliberately obeys injected text and asks for the injected amount, to test the guardrails under a misbehaving model. **Live-model results: ${live ? 'see below' : 'not run yet (no model key on this machine)'}.**
+> **What these numbers are.** \`scripted\` and \`scripted-adversarial\` are **scripted** (no LLM): they drive the real AI SDK tool loop, tools, policy engine, ledger and guards, so they measure the **control system**. \`scripted-adversarial\` deliberately obeys injected text and asks for the injected amount. ${live ? `The **live** column is a real LLM (**${LIVE_ID}**, free tier) through the same loop: ${live.summaries.live.runs} runs over ${live.repeat ?? live.liveStats?.repeatRequested} requested repeat(s)${live.liveStats?.quotaStoppedAt ? `, stopped early by the daily free-tier quota at ${live.liveStats.quotaStoppedAt}` : ''}. Live latency excludes free-tier pacing and 429 back-off waits.` : '**Live-model results: not run yet.**'}
 
 ## Headline
 
@@ -36,8 +38,9 @@ ${row('Injection tripwire recall', (s) => f(s.injectionCaught, s.injectionDen))}
 ${row('Benign look-alike false positives', (s) => f(s.benignFP, s.benignDen))}
 ${row('Out-of-policy tool calls blocked', (s) => String(s.blockedAttempts))}
 ${row('Tool calls per run (mean) / max model steps', (s) => `${s.toolCallsPerRun} / ${s.maxSteps}`)}
-${row('Latency p50 / p95 (harness, scripted model)', (s) => `${s.p50} ms / ${s.p95} ms`)}
-${row('Cost per run', (s) => `$${s.costPerRun.toFixed(4)} (no LLM)`)}
+${row('Latency p50 / p95 per run', (s) => `${s.p50} ms / ${s.p95} ms`)}
+${row('Tokens per run (mean)', (s) => String(s.tokensPerRun))}
+${row('Cost per run', (s) => `$${s.costPerRun.toFixed(4)}`)}
 
 Repeat-run variance (scripted, 3 repeats): ${main.variance?.scripted ? `${main.variance.scripted.stable}/${main.variance.scripted.of} case-turns identical` : 'see run with --repeat 3'} — expected for a deterministic model; the live suite repeats each case 3× to measure real variance.
 
@@ -51,7 +54,7 @@ ${cats.map((c) => { const a = S.scripted.byCategory[c]; return `| ${c} | ${a.run
 
 | Check | ${models.join(' | ')} |
 |---|${models.map(() => '---').join('|')}|
-${main.checks.scripted.map((c: any, i: number) => `| \`${c.check}\` | ${models.map((m) => `${main.checks[m][i].pass}/${main.checks[m][i].of}`).join(' | ')} |`).join('\n')}
+${main.checks.scripted.map((c: any, i: number) => `| \`${c.check}\` | ${models.map((m) => { const ck = m.startsWith('live') ? live.checks.live[i] : main.checks[m][i]; return `${ck.pass}/${ck.of}`; }).join(' | ')} |`).join('\n')}
 
 ## Ablations: which part of the design carries the safety?
 
@@ -75,7 +78,14 @@ ${S.scripted.failures.length ? S.scripted.failures.map((x: any) => `- \`${x.case
 - Same author wrote the policy, the cases and the labels. Expect overfitting; a held-out pack written by someone else is the next step.
 - Scripted models do not measure LLM judgement, reply quality or real latency/cost. The live suite does (\`npm run eval:live\`), and it has not been run yet.
 - Synthetic data only. No real carrier, order or payment system is involved.
-${live ? `\n## Live model\n\n\`\`\`json\n${JSON.stringify(Object.fromEntries(Object.entries(live.summaries).map(([k, v]: any) => [k, { ...v, failures: v.failures.length }])), null, 2)}\n\`\`\`\n` : ''}`;
+${live ? liveSection() : ''}`;
+
+function liveSection() {
+  const L = live.summaries.live; const st = live.liveStats ?? {};
+  const notes = fs.existsSync('evals/live-notes.md') ? fs.readFileSync('evals/live-notes.md', 'utf8') : '';
+  const fails = L.failures.map((x: any) => `| \`${x.caseId}\` t${x.turn} r${x.rep} | ${x.expected} | ${x.got} | ${x.criticals.length ? x.criticals.join('; ') : '—'} | ${x.reliable ? '' : 'unreliable '}${x.evidence?.applicable && !x.evidence.ok ? `evidence missing [${x.evidence.missing.join(', ')}] unseen [${x.evidence.unseen.join(', ')}]` : ''} |`).join('\n');
+  return `\n## Live model: ${LIVE_ID}\n\nRuns ${L.runs} (${L.cases} cases, repeats requested ${st.repeatRequested ?? '?'}). Model calls ${st.calls ?? '?'}, retries after 429/5xx ${st.retries ?? '?'}, pacing/back-off wait ${Math.round((st.waitedMs ?? 0) / 1000)} s (excluded from latency). Quota hits: ${(st.quotaInfo ?? []).join(', ') || 'none'}. Variance across repeats: ${live.variance?.live ? `${live.variance.live.stable}/${live.variance.live.of} case-turns gave the same outcome and amount every repeat` : 'n/a'}.\n\n| Case | Expected | Got | Critical | Other |\n|---|---|---|---|---|\n${fails || '| — | | | | |'}\n\n${notes}\n`;
+}
 md = md.replace(/\n\n\n+/g, '\n\n');
 fs.writeFileSync('evals/REPORT.md', md);
 const dir = process.env.DNR_HANDOFF_DIR;
