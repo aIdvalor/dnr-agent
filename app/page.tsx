@@ -187,7 +187,7 @@ export default function Page() {
                 </details>
                 <div className="runbar">
                   <label className="sr" htmlFor="model">Model</label>
-                  <select id="model" value={effModel} onChange={(e) => setModel(e.target.value)}>
+                  <select id="model" value={effModel} onChange={(e) => { setModel(e.target.value); setEvents([]); setResult(null); setCommitMsg(null); setTurn(0); }}>
                     <option value="replay" disabled={!replayOk}>{`Recorded ${replayModel || 'live LLM'} run (replay, no key)`}{replayOk ? '' : ' (not recorded)'}</option>
                     <option value="scripted">{MODEL_LABEL.scripted}</option>
                     <option value="scripted-adversarial">{MODEL_LABEL['scripted-adversarial']}</option>
