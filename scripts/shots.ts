@@ -2,7 +2,7 @@
  *  Uses only replay and scripted models: no API calls. */
 import { chromium, type Page } from 'playwright-core';
 import fs from 'node:fs';
-const BASE = process.env.BASE_URL ?? 'http://localhost:3000';
+const BASE = process.env.BASE_URL ?? 'http://localhost:8765/dnr-agent'; // static export served locally (see scripts/smoke-static.ts)
 const exe = process.env.CHROME_PATH ?? '/usr/bin/google-chrome';
 const MOCKS = process.env.MOCKS_DIR;
 
@@ -15,7 +15,7 @@ async function open(width: number, height: number) {
   return page;
 }
 async function runCase(page: Page, label: string, model: string, opts: { fresh?: boolean; again?: boolean } = {}) {
-  if (opts.fresh) await fetch(`${BASE}/api/ledger`, { method: 'DELETE' });
+  // Static demo: the ledger is per scenario and resets when a scenario is picked.
   if (!opts.again) await page.getByRole('button', { name: new RegExp(label) }).click();
   if (!opts.again) await page.getByLabel('Model', { exact: true }).selectOption(model);
   await page.getByRole('button', { name: /^(Run agent|Run again|Start over)/ }).click();

@@ -1,8 +1,8 @@
 /** Records the demo clips (replay + scripted models only, no API calls) with headless Playwright video.
- *  Needs the app running with readable pacing: DNR_DEMO_PACE_MS=700 npm start. Writes webm + a timeline JSON per clip. */
+ *  Needs the static export served locally; readable pacing via ?pace=700 on the URL. Writes webm + a timeline JSON per clip. */
 import { chromium, type Page } from 'playwright-core';
 import fs from 'node:fs';
-const BASE = process.env.BASE_URL ?? 'http://localhost:3000';
+const BASE = process.env.BASE_URL ?? 'http://localhost:8765/dnr-agent'; // static export served locally (see scripts/smoke-static.ts)
 const OUT = process.env.CLIPS_DIR ?? 'clips';
 const exe = process.env.CHROME_PATH ?? '/usr/bin/google-chrome';
 const W = 1280, H = 800;
@@ -46,7 +46,7 @@ const finished = (p: Page) => p.getByText(/Finished ·/).waitFor({ timeout: 6000
 const smooth = (p: Page, y: number) => p.evaluate((y) => window.scrollTo({ top: y, behavior: 'smooth' }), y);
 const scrollTo = async (p: Page, sel: string, offset = 70) => { const y = await p.evaluate(([s, o]) => { const el = document.querySelector(s as string)!; return el.getBoundingClientRect().top + window.scrollY - (o as number); }, [sel, offset]); await smooth(p, y); await wait(p, 900); };
 
-await fetch(`${BASE}/api/ledger`, { method: 'DELETE' });
+/* static demo: ledger resets per scenario */
 
 await clip('01-injection-500-blocked', async (p, mark) => {
   await p.goto(`${BASE}/?case=i01&autoplay=0`); await p.getByRole('button', { name: /Injected carrier note/ }).waitFor();
@@ -66,7 +66,7 @@ await clip('01-injection-500-blocked', async (p, mark) => {
 });
 
 await clip('02-human-confirm-refund', async (p, mark) => {
-  await fetch(`${BASE}/api/ledger`, { method: 'DELETE' });
+  /* static demo: ledger resets per scenario */
   await p.goto(`${BASE}/?case=n01&autoplay=0`); await p.getByRole('button', { name: /Refund eligible/ }).waitFor();
   mark('page: refund-eligible scenario, $42 order, delivered 5 days ago'); await wait(p, 3000);
   await click(p, p.getByRole('button', { name: /^Run agent/ })); mark('run: recorded gemini-3.1-flash-lite run (replay)');

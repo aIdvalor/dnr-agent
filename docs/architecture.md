@@ -51,7 +51,7 @@ flowchart LR
 4. **Propose (step 3, refunds only).** `propose_refund` re-runs the policy and accepts only `REFUND_ELIGIBLE` at exactly the policy amount. Anything else is blocked and logged. An accepted call writes a **pending** ledger entry. No tool can commit.
 5. **Submit (step 4).** `submit_outcome` carries outcome, amount, evidence ids, a buyer reply and a note for the reviewer. The loop stops on this call or at 6 steps.
 6. **Post-loop guard.** Code reconciles the submission with the policy. The policy's outcome and amount win, and the model may only make a case more conservative (escalate). If the model never submits, the case escalates. Cited evidence must be scans the model actually saw. A buyer reply that claims a refund is done, names a different amount, or promises money the policy did not allow is replaced with a safe template.
-7. **Human confirm.** The reviewer sees the trace, outcome and draft reply. Confirm sends only a proposal id. `commitRefund()` rechecks the policy against fresh source data and the current ledger, then writes one idempotent entry. A second click is a no-op. A stale proposal whose facts changed is rejected.
+7. **Human confirm.** The reviewer sees the trace, outcome and draft reply. Confirm sends the proposal id **and the state version the reviewer saw** (an approval). `commitRefund()` rechecks the policy against fresh source data and the current ledger, then writes one idempotent entry. A second click is a no-op. A stale proposal whose facts changed is rejected.
 
 ## Key design decisions and tradeoffs
 
@@ -70,6 +70,22 @@ flowchart LR
 | 11 | **Escalation is sticky.** A run that ends in ESCALATE writes an open escalation for the order; policy returns `OPEN_ESCALATION` until a human resolves it. | Found by the live run (`t03`): a turn that timed out and escalated, followed by a buyer push, got a refund queued while a human owned the case. A later message must not route around the human. | A transient timeout parks the case with a human until they clear it. Accepted: slower beats paying around a handoff. |
 | 12 | **Live runs are paced, recorded and replayable; the demo defaults to replay.** | Free tiers allow 15 requests/min and 20–500 requests/day. Recording each model response lets the public demo show real model decisions with no key, and lets a reviewer re-score a live run through new code at $0. | Replay only reproduces runs that finished. A recording is pinned to the prompts and tools it was made with. |
 
+| 13 | **Approval binds to facts.** Each proposal stores a `stateVersion` (hash of order, scans incl. notes, buyer history, buyer messages, prior refunds, open escalations, policy version). Confirm must present it; commit recomputes it. | An approval given on old facts must not pay after the facts change, even if the new facts would also pay. | A new buyer message invalidates a pending approval; the reviewer re-confirms. |
+| 14 | **OPEN_ESCALATION is state, checked at commit, not only a policy rule.** Only `resolveEscalations(order, "human:<id>")` clears it; only `human:<id>` can commit. | The `t03` fix should not depend on one code path. | — |
+| 15 | **Serialized ledger writes.** Every mutation: lock file (O_EXCL) → reload from disk → change → temp+rename → unlock. | Two handles or processes cannot overwrite each other's commit (tested with 6 concurrent processes). | Single-host lock with a 10 s stale timeout; not a distributed lock. Production would use a database transaction with a unique constraint on (order, committed). |
+| 16 | **Public demo is a static export.** Runs are recorded at build time through the real code (replay + scripted models) and played in the browser. No API routes exist; the live path is a local CLI (`scripts/live.ts`). | "No model calls in public" is structural, not an env flag; no one can spend the owner's free quota. | The public demo cannot run new inputs. That is the point. |
+
+## Budgets: which layer enforces what
+
+| Budget | Value | Enforced by | On exhaustion |
+|---|---|---|---|
+| Model steps | 6 | AI SDK `stopWhen: isStepCount(6)` | loop stops; no submission → ESCALATE |
+| Per step | 20 s | AI SDK `generate({ timeout: { stepMs } })` | model call aborted → ESCALATE |
+| Per run | 60 s | AI SDK `generate({ timeout: { totalMs } })` | run aborted → ESCALATE |
+| Per tool | 1.5 s | `lib/tools.ts` `traced()` Promise.race | tool error to the model; policy fails closed on the same source |
+
+A step is one model call and may contain several parallel tool calls, so 6 steps is not 6 tool calls (a clean run is 4 steps / 6 tool calls). Every exhaustion ends in the same terminal state: ESCALATE, any proposal queued earlier in the run is withdrawn (`rejected`), an open escalation is recorded, nothing is committed, and the model's reply (if any) passes the reply guard. `tests/invariants.test.ts` covers each.
+
 Not built, on purpose: multi-agent orchestration, vector search, browser automation, real carrier or payment integrations.
 
 ## Files
@@ -82,8 +98,11 @@ Not built, on purpose: multi-agent orchestration, vector search, browser automat
 | `lib/tools.ts` | Zod tools, scoping, timeouts, tracing, propose recheck |
 | `lib/agent.ts` | ToolLoopAgent config + post-loop guard |
 | `lib/guard.ts` | buyer-reply checks (shared with the eval scorer) |
-| `lib/commit.ts` | human Confirm path with recheck |
+| `lib/commit.ts` | human Confirm path: human actor, escalation lock, approval binding, policy recheck |
 | `lib/live.ts` | live-model wrapper: pacing, 429/5xx back-off, daily-quota stop, response recorder |
-| `lib/ledger.ts` | idempotent file ledger |
+| `lib/ledger.ts` | idempotent file ledger, serialized writes |
 | `lib/models.ts` | provider switch (AI Gateway / OpenAI / Anthropic) + scripted models |
-| `evals/` | case builder, harness, report, results |
+| `evals/` | case builder, harness, graders (`grade.ts`), report, results; `evals/heldout/` frozen held-out pack |
+| `scripts/build-static-data.ts` | bakes the public demo (recorded click paths) into `public/recorded/` |
+| `scripts/live.ts` | local-only live entry point (your key, never in the web build) |
+| `scripts/verify-static.sh` | fails if the export has an API route, provider code, key names or key-shaped strings |

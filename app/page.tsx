@@ -25,10 +25,10 @@ type RecNode = { events: TraceEvent[]; result: RunResult | null; ledger: Entry[]
 const bundles = new Map<string, Promise<Record<string, RecNode>>>();
 const bundle = (id: string, model: string) => {
   const k = `${id}.${model}`;
-  if (!bundles.has(k)) bundles.set(k, fetch(`${BASE}/demo/runs/${k}.json`).then((r) => (r.ok ? r.json() : {})));
+  if (!bundles.has(k)) bundles.set(k, fetch(`${BASE}/recorded/runs/${k}.json`).then((r) => (r.ok ? r.json() : {})));
   return bundles.get(k)!;
 };
-const PACE_MS = 280;
+let PACE_MS = 280; // ?pace=<ms> slows playback for recordings
 const OUTCOME_WORD: Record<string, string> = { REFUND_ELIGIBLE: 'Refund eligible', WAIT_FOR_EVIDENCE: 'Wait for evidence', ESCALATE: 'Escalate to a human' };
 const money = (n: number) => `$${n.toFixed(2)}`;
 const frac = (x?: [number, number]) => (x ? `${x[0]}/${x[1]}` : '–');
@@ -105,10 +105,11 @@ export default function Page() {
   useEffect(() => {
     reduced.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const q = new URLSearchParams(window.location.search);
+    if (q.get('pace')) PACE_MS = Math.min(3000, Math.max(0, Number(q.get('pace')) || 280));
     if (q.get('case')) setSel(q.get('case')!);
     if (q.get('model')) setModel(q.get('model')!);
-    fetch(`${BASE}/demo/cases.json`).then((r) => r.json()).then((d) => { setCases(d.cases); setReplayModel(d.replayModel ?? ''); });
-    fetch(`${BASE}/demo/evals.json`).then((r) => r.json()).then(setEvals);
+    fetch(`${BASE}/recorded/cases.json`).then((r) => r.json()).then((d) => { setCases(d.cases); setReplayModel(d.replayModel ?? ''); });
+    fetch(`${BASE}/recorded/evals.json`).then((r) => r.json()).then(setEvals);
   }, []);
 
   // The default scenario plays the happy path up to the Confirm button (once per visit); ?autoplay=0 turns it off.
@@ -309,7 +310,9 @@ export default function Page() {
         <section id="limits" className="sect" aria-labelledby="lim-h">
           <h2 id="lim-h" className="take">A proof of concept on synthetic data, not a payment system.</h2>
           <ul className="plain">
-            <li>One author wrote the policy, the cases and the labels; a held-out pack from someone else is the next step.</li>
+            <li>One author wrote the policy, the cases, the labels and the 20-case held-out pack, so the held-out pack is not independent; a pack written by someone else is still open.</li>
+            <li>The injection tripwire is a heuristic, not a security boundary: it caught 1 of 4 held-out paraphrases. Amounts, escalation and commit live in code, so a miss costs a human look, not money.</li>
+            <li>The ledger is a single-host file with a lock file: serialized and tested with concurrent processes, but not a distributed system.</li>
             <li>The live run is one free-tier model for one day of quota (about 1.6 repeats of the pack), so treat its variance as a first look.</li>
             <li>Single-process file ledger, no auth, no real carrier, store or payment integration.</li>
             <li>Replay reproduces recorded model responses through today&rsquo;s code; it cannot show how a model would react to a changed tool result.</li>
@@ -339,12 +342,13 @@ function EvalsSection({ e }: { e: Evals | null }) {
   ];
   return (
     <section id="evals" className="sect" aria-labelledby="ev-h">
-      <h2 id="ev-h" className="take">The guards held in every scripted run; the one live failure is fixed.</h2>
+      <h2 id="ev-h" className="take">The guards held in every scripted and replayed run; the one live failure is fixed in code, not yet re-run live.</h2>
       <div className="kpis">
         <div className="kpi em"><span className="n">{s.criticals + a.criticals}</span><span className="l">critical violations in {s.runs + a.runs} scripted runs</span></div>
         {l && <div className="kpi"><span className="n">{frac(l.agree)}</span><span className="l">live model agreed with the label, when it finished</span></div>}
         {l && <div className="kpi"><span className="n">{frac(l.evidence)}</span><span className="l">live runs cited only scans they had seen</span></div>}
         {g && <div className="kpi"><span className="n">{g.criticals}</span><span className="l">critical violations with the guards switched off</span></div>}
+        {e.heldout && <div className="kpi"><span className="n">{e.heldout.scripted.criticals}</span><span className="l">criticals on the 20-case held-out pack ({frac(e.heldout.scripted.outcome)} turns correct, first pass)</span></div>}
       </div>
 
       <figure className="ablation">
@@ -361,7 +365,7 @@ function EvalsSection({ e }: { e: Evals | null }) {
         <ol className="plain">
           <li>Live run, case <code>t03</code>: turn 1 timed out at the 20 s step limit, so the case correctly failed closed to a human.</li>
           <li>The buyer then wrote &ldquo;$500 or I file a chargeback.&rdquo; The ledger did not remember the handoff, so policy evaluated the order fresh and $42 (the policy amount, never $500) was queued and confirmed while a human owned the case.</li>
-          <li>Fix: escalation is now sticky (<code>OPEN_ESCALATION</code>), enforced at both rechecks. Regression case <code>t07</code> reproduces it; replaying the live run&rsquo;s own responses through the fix gives 0 criticals. Try the &ldquo;Timeout, then the buyer pushes&rdquo; scenario.</li>
+          <li>Fix: escalation is now sticky (<code>OPEN_ESCALATION</code>), enforced at both rechecks. Regression case <code>t07</code> reproduces it; replaying the live run&rsquo;s own responses through the fix gives 0 criticals. That is regression coverage, not fresh-model evidence: a new live run on the fixed code is still to come. Try the &ldquo;Timeout, then the buyer pushes&rdquo; scenario.</li>
         </ol>
       </details>
 

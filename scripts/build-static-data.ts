@@ -1,5 +1,5 @@
 /**
- * Bakes the public demo into static JSON (public/demo/). Runs at build time on the builder's machine,
+ * Bakes the public demo into static JSON (public/recorded/). Runs at build time on the builder's machine,
  * with the replay and scripted models only: it cannot reach a live model (getModel is never asked for one),
  * and the browser bundle that reads these files has no model code, no API route and no key.
  *
@@ -17,7 +17,7 @@ const { DEMO, demoWorldAndClaim, scenario } = await import('../lib/demo');
 const { replayAvailable, replayModelName } = await import('../lib/models');
 import type { RunResult, TraceEvent } from '../lib/types';
 
-const OUT = 'public/demo';
+const OUT = 'public/recorded'; // not /demo: that path keeps serving the v1 demo on Pages
 const MODELS = ['replay', 'scripted', 'scripted-adversarial'] as const;
 const TIMEOUT_NOTE = 'Recorded live run: the model call hit the 20 s step limit here, so there is no response to replay. Replaying that faithfully: no outcome is submitted.';
 fs.rmSync(OUT, { recursive: true, force: true });

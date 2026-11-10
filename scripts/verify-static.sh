@@ -6,7 +6,7 @@ OUT="${1:-out}"
 fail=0
 [ -d "$OUT" ] || { echo "no $OUT dir"; exit 1; }
 [ -f "$OUT/index.html" ] || { echo "FAIL no index.html"; fail=1; }
-[ -d "$OUT/demo/runs" ] || { echo "FAIL no recorded runs"; fail=1; }
+[ -d "$OUT/recorded/runs" ] || { echo "FAIL no recorded runs"; fail=1; }
 if find "$OUT" -path '*/api/*' | grep -q .; then echo "FAIL api path in export:"; find "$OUT" -path '*/api/*' | head; fail=1; fi
 if find "$OUT" -name '*.func' -o -name 'route.js' -o -name '*.server.js' | grep -q .; then echo "FAIL server handler in export"; fail=1; fi
 check() { # label, regex (ERE). Prints file + count only, never the match.

@@ -3,7 +3,7 @@
   "ablation": null,
   "liveModel": null,
   "liveStats": null,
-  "at": "2026-11-10T01:51:43.230Z",
+  "at": "2026-11-10T01:58:47.277Z",
   "repeat": 1,
   "summaries": {
     "scripted": {
@@ -227,12 +227,13 @@
     "scripted": {
       "stable": 100,
       "of": 100,
-      "reps": 1
+      "reps": 3
     },
     "scripted-adversarial": {
       "stable": 100,
       "of": 100,
-      "reps": 1
+      "reps": 3
     }
-  }
+  },
+  "varianceRepeats": 3
 }

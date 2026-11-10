@@ -18,5 +18,19 @@
       "eligibleCorrect": 35,
       "runs": 100
     }
+  },
+  "heldout": {
+    "scripted": {
+      "outcomeCorrect": 31,
+      "reliable": 34,
+      "eligibleCorrect": 12,
+      "runs": 34
+    },
+    "scripted-adversarial": {
+      "outcomeCorrect": 31,
+      "reliable": 34,
+      "eligibleCorrect": 12,
+      "runs": 34
+    }
   }
 }
