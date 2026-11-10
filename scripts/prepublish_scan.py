@@ -30,17 +30,28 @@ if PERSONAL: RULES.append(('personal-identifier', re.compile(PERSONAL, re.I)))
 EMAIL = re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}')
 EMAIL_ALLOW = re.compile(r'(@users\.noreply\.github\.com$|^noreply@local$|@example\.(com|org)$|^git@github\.com$)', re.I)
 
-findings, log = [], []
-def F(scope, where, rule): findings.append((scope, where, rule))
+import hashlib
+findings, log, allowed = [], [], []
+# Narrow allowlist (owner decision, Nov 9 2026): identifiers that are already public in v1 history and intentional.
+# Entries are exact: a commit sha + rule, or a path + rule + sha256 of the exact line text. No names are stored here.
+ALLOW_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'prepublish-allowlist.json')
+ALLOW = json.load(open(ALLOW_FILE)) if os.path.exists(ALLOW_FILE) else {'commits': [], 'lines': []}
+def is_allowed(rule, commit=None, path=None, linehash=None):
+    if commit and any(commit == a['commit'] and rule == a['rule'] for a in ALLOW['commits']): return True
+    if path and linehash and any(path == a['path'] and rule == a['rule'] and linehash == a['sha256'] for a in ALLOW['lines']): return True
+    return False
+def F(scope, where, rule, commit=None, path=None, linehash=None):
+    (allowed if is_allowed(rule, commit, path, linehash) else findings).append((scope, where, rule))
 def say(s): log.append(s); print(s)
 
-def scan_text(scope, where, text):
+def scan_text(scope, where, text, path=None):
     for i, line in enumerate(text.splitlines(), 1):
+        lh = hashlib.sha256(line.encode()).hexdigest()
         if len(line) > 20000: line = line[:20000]
         hit = {name for name, rx in RULES if rx.search(line)}
         for m in EMAIL.finditer(line):
             if not EMAIL_ALLOW.search(m.group(0)): hit.add('email-address')
-        for h in sorted(hit): F(scope, f'{where}:{i}', h)
+        for h in sorted(hit): F(scope, f'{where}:{i}', h, path=path, linehash=lh)
 
 def run(cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
@@ -84,18 +95,18 @@ for R in repos:
             seen.add(sha); blobs += 1
             data = subprocess.run(['git', '-C', R, 'cat-file', 'blob', sha], capture_output=True).stdout
             if b'\0' in data[:8000]: continue
-            scan_text(f'history:{name}', f'{rev[:8]} {path}', data.decode('utf-8', 'replace'))
+            scan_text(f'history:{name}', f'{rev[:8]} {path}', data.decode('utf-8', 'replace'), path=path)
     say(f'  pattern sweep: {blobs} unique text/binary blobs, {len(findings)-before} hits')
     before = len(findings)
     for l in run(['git', '-C', R, 'log', '--all', '--format=%H%x09%an%x09%ae%x09%cn%x09%ce%x09%s%x09%b']).stdout.split('\n'):
         p = l.split('\t')
         if len(p) < 6: continue
-        h = p[0][:8]
+        full = p[0]; h = full[:8]
         for e in (p[2], p[4]):
-            if e and not EMAIL_ALLOW.search(e): F(f'meta:{name}', h, 'commit-email-not-noreply')
+            if e and not EMAIL_ALLOW.search(e): F(f'meta:{name}', h, 'commit-email-not-noreply', commit=full)
         body = '\t'.join([p[1], p[3]] + p[5:])
         for nm, rx in RULES:
-            if rx.search(body): F(f'meta:{name}', h, f'commit-message:{nm}')
+            if rx.search(body): F(f'meta:{name}', h, f'commit-message:{nm}', commit=full)
     say(f'  commit metadata (author/committer/message): {len(findings)-before} hits')
 
 for D in dirs:
@@ -109,10 +120,12 @@ for D in dirs:
             try: data = open(p, 'rb').read()
             except Exception: F('dir', p, 'unreadable'); continue
             if b'\0' in data[:8000]: continue
-            scan_text('dir', os.path.relpath(p, D), data.decode('utf-8', 'replace'))
+            scan_text('dir', os.path.relpath(p, D), data.decode('utf-8', 'replace'), path=os.path.relpath(p, D))
     say(f'  pattern sweep: {files} files, {len(findings)-before} hits')
 
 uniq = sorted(set(findings))
+for s_, w_, r_ in sorted(set(allowed)): print(f'ALLOWLISTED {s_} {w_} rule={r_}')
+say(f'allowlisted (exact, pre-existing public): {len(set(allowed))}')
 for s, w, r in uniq: print(f'FINDING {s} {w} rule={r}')
 verdict = 'CLEAN' if not uniq else f'{len(uniq)} finding(s): DO NOT PUBLISH until each is fixed or explicitly allowlisted'
 print(f'\nPREPUBLISH SCAN: {verdict}')
