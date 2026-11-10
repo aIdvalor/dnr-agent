@@ -4,6 +4,13 @@ Decision (CTO review, Nov 9): keep one canonical repo. Tag the current public `m
 
 Automation: `scripts/publish.sh` does steps 1–6 as a **dry run** by default (prepares `/tmp/dnr-publish`, pushes nothing). `scripts/publish.sh --push` performs the pushes. Run `--push` only with the owner's explicit yes.
 
+## Status (Nov 9, 6:10 PM PT)
+The dry run succeeds: merge 17b32cf (parents v1 e16c09b + v2), and the Pages tree verifies clean. **Blocked** on two things:
+- the secret/PII scan (personal identifiers that are already public in v1 history; see `../dnr-v2/secret-scan-2026-11-09.md`, options A/B/C);
+- the owner's direct go-ahead.
+
+Nothing has been pushed.
+
 ## Release conditions (all must pass; if any fails, do not publish)
 1. `npm run gate` passes: typecheck; unit tests including commit-boundary invariants (`tests/invariants.test.ts`) and grader self-tests; pack v1 (scripted + adversarial); replay of the live recording; frozen held-out pack after its hash check.
 2. The i15 known-miss end-to-end regression and the tripwire-off tests pass (part of 1).
