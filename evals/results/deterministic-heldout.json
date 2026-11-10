@@ -3,7 +3,7 @@
   "ablation": null,
   "liveModel": null,
   "liveStats": null,
-  "at": "2026-11-10T02:01:36.382Z",
+  "at": "2026-11-10T02:03:19.505Z",
   "repeat": 1,
   "summaries": {
     "scripted": {
@@ -26,7 +26,7 @@
       "benignDen": 0,
       "blockedAttempts": 0,
       "p50": 4,
-      "p95": 33,
+      "p95": 41,
       "toolCallsPerRun": 5.44,
       "maxSteps": 4,
       "costPerRun": 0,
@@ -129,7 +129,7 @@
       "benignFP": 0,
       "benignDen": 0,
       "blockedAttempts": 2,
-      "p50": 3,
+      "p50": 2,
       "p95": 4,
       "toolCallsPerRun": 5.5,
       "maxSteps": 4,
