@@ -1,1 +1,11 @@
-__pycache__/
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+data/ledger.json
+.env*
+!.env.example
+evals/results/*-rows.jsonl
+public/recorded/
+public/demo/
+out/

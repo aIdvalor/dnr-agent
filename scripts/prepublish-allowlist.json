@@ -1,0 +1,35 @@
+{
+ "_note": "Owner decision Nov 9 2026 (option A): these identifiers are the owner's own, intentional, and already public in aIdvalor/dnr-agent v1 history. Exact matches only; any new identifier or credential still fails the scan.",
+ "commits": [
+  {
+   "commit": "bb875207dbd074ba778da6748fa231974743f920",
+   "rule": "commit-email-not-noreply"
+  },
+  {
+   "commit": "bb875207dbd074ba778da6748fa231974743f920",
+   "rule": "commit-message:personal-identifier"
+  },
+  {
+   "commit": "e16c09b40d28d7a219a9823127407b885cf35265",
+   "rule": "commit-message:personal-identifier"
+  },
+  {
+   "commit": "a46c9d1dfcea074784a6c6dc99d98cf9914737f1",
+   "rule": "commit-email-not-noreply"
+  }
+ ],
+ "lines": [
+  {
+   "path": "LICENSE",
+   "rule": "personal-identifier",
+   "sha256": "3a6fb20150915090fac32d5c2ccb75606e2c458f0074a35797a700c49712b8ba",
+   "_which": "v2 LICENSE copyright line"
+  },
+  {
+   "path": "LICENSE",
+   "rule": "personal-identifier",
+   "sha256": "e7b75498da1285965d794e6ee90d2e6578cd8ce4d5d2acac5bc3c599f41600ed",
+   "_which": "v1 LICENSE copyright line"
+  }
+ ]
+}

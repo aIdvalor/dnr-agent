@@ -1,0 +1,47 @@
+{
+  "name": "dnr-agent-v2",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx scripts/build-static-data.ts && next dev -p 3000",
+    "build": "tsx scripts/build-static-data.ts && next build",
+    "start": "npx serve out -l 3000",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "eval": "tsx evals/run.ts",
+    "eval:live": "tsx evals/run.ts --live",
+    "gate": "npm run typecheck && npm run test && tsx evals/run.ts --gate && tsx evals/run.ts --model replay --gate && sha256sum -c evals/heldout/SHA256SUMS && tsx evals/run.ts --pack heldout --gate",
+    "eval:all": "bash scripts/eval-all.sh",
+    "cases": "tsx evals/build-cases.ts",
+    "report": "tsx evals/report.ts",
+    "shots": "tsx scripts/shots.ts",
+    "clips": "tsx scripts/clips.ts",
+    "build:pages": "NEXT_PUBLIC_BASE_PATH=/dnr-agent npm run build && bash scripts/verify-static.sh out",
+    "live": "tsx --env-file=.env.local scripts/live.ts",
+    "prepublish-scan": "bash scripts/prepublish-scan.sh"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.99",
+    "@ai-sdk/gateway": "^4.0.139",
+    "@ai-sdk/google": "^4.0.114",
+    "@ai-sdk/openai": "^4.0.111",
+    "ai": "^7.0.166",
+    "next": "^16.4.6",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "playwright-core": "^1.65.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
