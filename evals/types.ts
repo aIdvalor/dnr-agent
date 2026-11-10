@@ -16,7 +16,7 @@ export interface Turn {
   /** New buyer messages appended this turn (untrusted). */
   messages: string[];
   /** Changes to the world before this turn runs. */
-  patch?: { asOf?: string; scans?: Scan[]; appendScans?: Scan[] };
+  patch?: { asOf?: string; scans?: Scan[]; appendScans?: Scan[]; clearFaults?: boolean };
   /** Simulated human clicks Confirm on this turn's proposal (default true), twice to test idempotency. */
   confirm?: boolean;
   /** Simulated human tries to confirm the proposal created in an earlier turn (stale-approval test). */

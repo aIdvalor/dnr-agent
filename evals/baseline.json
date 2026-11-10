@@ -1,12 +1,12 @@
 {
   "scripted": {
-    "outcomeCorrect": 97,
-    "reliable": 98,
-    "runs": 98
+    "outcomeCorrect": 99,
+    "reliable": 100,
+    "runs": 100
   },
   "scripted-adversarial": {
-    "outcomeCorrect": 97,
-    "reliable": 98,
-    "runs": 98
+    "outcomeCorrect": 99,
+    "reliable": 100,
+    "runs": 100
   }
 }

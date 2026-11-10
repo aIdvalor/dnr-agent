@@ -6,7 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-export type ProposalStatus = 'pending_human' | 'committed' | 'rejected';
+export type ProposalStatus = 'pending_human' | 'committed' | 'rejected' | 'escalated' | 'escalation_resolved';
 export interface LedgerEntry {
   proposalId: string;
   idempotencyKey: string;
@@ -41,6 +41,22 @@ export class Ledger {
   all(): LedgerEntry[] { return this.entries.map((e) => ({ ...e })); }
   get(proposalId: string) { return this.entries.find((e) => e.proposalId === proposalId); }
   committedFor(orderId: string) { return this.entries.filter((e) => e.orderId === orderId && e.status === 'committed'); }
+  /** Open human handoffs for this order. While one is open, no later run may queue money for the order. */
+  openEscalationsFor(orderId: string) { return this.entries.filter((e) => e.orderId === orderId && e.status === 'escalated'); }
+
+  /** Record that a run ended in ESCALATE: the order now belongs to a human until they resolve it. Amount is always 0. */
+  markEscalated(p: { caseId: string; orderId: string; reasonCode: string; policyVersion: string }): LedgerEntry {
+    const open = this.openEscalationsFor(p.orderId)[0];
+    if (open) return { ...open };
+    const e: LedgerEntry = { ...p, amountUsd: 0, proposalId: `esc_${randomUUID().slice(0, 8)}`, idempotencyKey: `esc:${p.orderId}:${randomUUID().slice(0, 8)}`, status: 'escalated', createdAt: new Date().toISOString() };
+    this.entries.push(e); this.save();
+    return { ...e };
+  }
+  /** Human action: close the handoff so the order can be evaluated again. */
+  resolveEscalations(orderId: string, by: string) {
+    for (const e of this.openEscalationsFor(orderId)) { e.status = 'escalation_resolved'; e.committedBy = by; e.committedAt = new Date().toISOString(); }
+    this.save();
+  }
 
   /** Idempotent: the same (order, amount, reason, policy version) returns the existing open/committed proposal. */
   propose(p: Omit<LedgerEntry, 'proposalId' | 'idempotencyKey' | 'status' | 'createdAt'>): LedgerEntry {

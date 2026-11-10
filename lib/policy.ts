@@ -49,6 +49,8 @@ export interface PolicyInputs {
   buyerMessages: string[];
   /** Committed refunds already on the ledger for this order. */
   priorRefunds: number;
+  /** Open human handoffs on the ledger for this order (an earlier run ended in ESCALATE). */
+  openEscalations?: number;
   dataFault?: string; // tool_error / tool_timeout etc. observed while fetching inputs
 }
 
@@ -69,6 +71,8 @@ export function decide(i: PolicyInputs): PolicyDecision {
 
   // 2. One refund per order, ever. A repeat claim goes to a human.
   if (i.priorRefunds > 0) return out('ESCALATE', 'DUPLICATE_CLAIM', [], 0, { priorRefunds: i.priorRefunds });
+  // 2b. Escalation is sticky: once a run hands the order to a human, a later message cannot route around them.
+  if ((i.openEscalations ?? 0) > 0) return out('ESCALATE', 'OPEN_ESCALATION', [], 0, { openEscalations: i.openEscalations });
 
   // 3. Instruction-like text anywhere in untrusted text -> a human looks. Detection is a tripwire, not the safety boundary:
   //    amounts below never read free text, so a missed injection still cannot change the money.

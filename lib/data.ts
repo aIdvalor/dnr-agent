@@ -22,7 +22,7 @@ export function readBuyer(w: World, buyerId: string): BuyerHistory | null {
 
 /** The engine gathers its own inputs. Any fault => fail closed. */
 export function policyInputs(w: World, claim: Claim, ledger: Ledger): PolicyInputs {
-  const base = { asOf: w.asOf, buyerMessages: claim.messages, priorRefunds: ledger.committedFor(claim.orderId).length };
+  const base = { asOf: w.asOf, buyerMessages: claim.messages, priorRefunds: ledger.committedFor(claim.orderId).length, openEscalations: ledger.openEscalationsFor(claim.orderId).length };
   try {
     return { ...base, order: readOrder(w, claim.orderId), scans: readScans(w, claim.orderId), buyer: readBuyer(w, claim.buyerId) };
   } catch (e) {

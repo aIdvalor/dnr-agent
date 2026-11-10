@@ -48,7 +48,16 @@ function replayIndex(): Map<string, any> {
   }
   return replayCache;
 }
-export function replayAvailable(caseId: string): boolean { return replayIndex().has(`${caseId.includes('#') ? caseId : caseId + '#0'}|0`); }
+/** Only cases whose recorded run reached submit_outcome are replayable (a run cut off by a timeout is not). */
+export function replayAvailable(caseId: string): boolean {
+  const cid = caseId.includes('#') ? caseId : caseId + '#0';
+  for (let step = 0; step < 8; step++) {
+    const r = replayIndex().get(`${cid}|${step}`);
+    if (!r) return false;
+    if ((r.content as any[]).some((c: any) => c.type === 'tool-call' && c.toolName === 'submit_outcome')) return true;
+  }
+  return false;
+}
 export function replayModelName(): string { return path.basename(REPLAY_FILE, '.jsonl').replace(/^google_/, ''); }
 
 function replayModel() {

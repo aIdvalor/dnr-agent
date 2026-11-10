@@ -67,6 +67,8 @@ flowchart LR
 | 8 | **Scripted models drive the same AI SDK loop in tests.** A well-behaved script and an adversarial one that obeys injections. | Deterministic tests on every commit, at $0, of the exact production code path, including a model that misbehaves on purpose. | They don't measure LLM judgement or reply quality. That is the live suite's job (manual/nightly, spend-capped). |
 | 9 | **Bounded loop.** ≤ 6 steps, 1.5 s per tool, 20 s per step, 60 s per run, temperature 0. | Predictable latency and cost; no runaway loops. | A slow upstream fails closed instead of waiting. |
 | 10 | **Visible tool traces, not chain-of-thought.** | Reviewers need what the agent did and saw, which is verifiable. Hidden reasoning isn't. | Less "explanation" text; the reviewer note covers the why. |
+| 11 | **Escalation is sticky.** A run that ends in ESCALATE writes an open escalation for the order; policy returns `OPEN_ESCALATION` until a human resolves it. | Found by the live run (`t03`): a turn that timed out and escalated, followed by a buyer push, got a refund queued while a human owned the case. A later message must not route around the human. | A transient timeout parks the case with a human until they clear it. Accepted: slower beats paying around a handoff. |
+| 12 | **Live runs are paced, recorded and replayable; the demo defaults to replay.** | Free tiers allow 15 requests/min and 20–500 requests/day. Recording each model response lets the public demo show real model decisions with no key, and lets a reviewer re-score a live run through new code at $0. | Replay only reproduces runs that finished. A recording is pinned to the prompts and tools it was made with. |
 
 Not built, on purpose: multi-agent orchestration, vector search, browser automation, real carrier or payment integrations.
 
@@ -81,6 +83,7 @@ Not built, on purpose: multi-agent orchestration, vector search, browser automat
 | `lib/agent.ts` | ToolLoopAgent config + post-loop guard |
 | `lib/guard.ts` | buyer-reply checks (shared with the eval scorer) |
 | `lib/commit.ts` | human Confirm path with recheck |
+| `lib/live.ts` | live-model wrapper: pacing, 429/5xx back-off, daily-quota stop, response recorder |
 | `lib/ledger.ts` | idempotent file ledger |
 | `lib/models.ts` | provider switch (AI Gateway / OpenAI / Anthropic) + scripted models |
 | `evals/` | case builder, harness, report, results |

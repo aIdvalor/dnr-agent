@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   try { wc = demoWorldAndClaim(caseId); } catch (e) { return Response.json({ error: (e as Error).message }, { status: 404 }); }
   const { world, claim } = wc;
   const enc = new TextEncoder();
-  const paced = model !== 'live'; // scripted/replay finish in ms; pace them so the trace is readable // scripted runs finish in ms; pace them so the trace is readable
+  const paced = model !== 'live'; // scripted/replay runs finish in ms; pace them so the trace is readable
   const stream = new ReadableStream({
     async start(ctrl) {
       const q: TraceEvent[] = []; let done = false; let wake: (() => void) | null = null;

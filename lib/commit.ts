@@ -18,6 +18,7 @@ export function commitRefund(args: { proposalId: string; world: World; claim: Cl
   if (!p) return { status: 'rejected', reason: 'UNKNOWN_PROPOSAL' };
   if (p.status === 'committed') return { status: 'already_committed', entry: { ...p } };
   if (p.status === 'rejected') return { status: 'rejected', reason: `ALREADY_REJECTED:${p.rejectedReason}`, entry: { ...p } };
+  if (p.status !== 'pending_human') return { status: 'rejected', reason: `NOT_A_PENDING_PROPOSAL:${p.status}`, entry: { ...p } };
   if (p.orderId !== claim.orderId) return { status: 'rejected', reason: 'ORDER_MISMATCH', entry: ledger.markRejected(proposalId, 'ORDER_MISMATCH') };
 
   if (guardsDisabled()) return { status: 'committed', entry: ledger.markCommitted(proposalId, by) };

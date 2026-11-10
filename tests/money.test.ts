@@ -8,6 +8,17 @@ import os from 'node:os';
 import path from 'node:path';
 
 describe('ledger + commit (human Confirm path)', () => {
+  it('escalation is sticky: a proposal queued after a handoff cannot commit until a human resolves it', () => {
+    // Regression for live run t03 (gemini-3.1-flash-lite): turn 1 failed closed, turn 2 paid.
+    const l = new Ledger();
+    l.markEscalated({ caseId: 'c1#0', orderId: 'O1', reasonCode: 'FAIL_CLOSED_DATA', policyVersion: '2026-11-09.1' });
+    expect(l.markEscalated({ caseId: 'c1#1', orderId: 'O1', reasonCode: 'X', policyVersion: 'v' }).caseId).toBe('c1#0');
+    const p = l.propose({ caseId: 'c1#1', orderId: 'O1', amountUsd: 42, reasonCode: 'WAIT_WINDOW_ELAPSED', policyVersion: '2026-11-09.1' });
+    expect(commitRefund({ proposalId: p.proposalId, world: w(), claim: claim(), ledger: l, by: 'human:test' })).toMatchObject({ status: 'rejected' });
+    expect(l.committedFor('O1')).toHaveLength(0);
+    l.resolveEscalations('O1', 'human:test');
+    expect(l.openEscalationsFor('O1')).toHaveLength(0);
+  });
   it('commits once; a second click is idempotent', () => {
     const l = new Ledger();
     const p = l.propose({ caseId: 'c1', orderId: 'O1', amountUsd: 42, reasonCode: 'WAIT_WINDOW_ELAPSED', policyVersion: '2026-11-09.1' });

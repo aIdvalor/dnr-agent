@@ -100,6 +100,7 @@ export async function runAgent(o: RunOptions): Promise<RunResult> {
     if (final !== 'REFUND_ELIGIBLE' && proposalId) {
       o.ledger.markRejected(proposalId, `FINAL_OUTCOME_${final}`); proposalId = null;
     }
+    if (final === 'ESCALATE') o.ledger.markEscalated({ caseId: o.claim.caseId, orderId: o.claim.orderId, reasonCode: policy.reasonCode, policyVersion: policy.policyVersion });
     if (sub) {
       const unseen = sub.evidenceIds.filter((e) => !state.seenEvidenceIds.has(e));
       if (unseen.length) notes.push(`Cited evidence not seen in this run: ${unseen.join(', ')}.`);

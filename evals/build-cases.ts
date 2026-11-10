@@ -173,7 +173,7 @@ add('duplicate', 'd04', 'Agent runs twice before anyone confirms', {}, R(42), {
 add('duplicate', 'd05', 'Prior refund was on a different order', {}, R(42, 'WAIT_WINDOW_ELAPSED'), { seedLedger: [{ orderId: 'O-other', amountUsd: 30, status: 'committed' }], checks: ['idempotent_refund_duplicate_claim'] });
 add('duplicate', 'd06', 'Prior proposal on this order was rejected, never paid', {}, R(42, 'WAIT_WINDOW_ELAPSED'), { seedLedger: [{ orderId: 'O-d06', amountUsd: 42, status: 'rejected' }], checks: ['idempotent_refund_duplicate_claim'] });
 
-// ---------------- multi_turn (6 cases) ----------------
+// ---------------- multi_turn (7 cases) ----------------
 const mt = (id: string, title: string, o: Opt, turns: Turn[], checks: string[]) => add('multi_turn', id, title, o, turns[0].expected, { turns, checks });
 mt('t01', 'Wait, then refund after the window passes', { deliveredDaysAgo: 1 }, [
   { messages: [MSG], expected: { ...W('INSIDE_WAIT_WINDOW'), evidence: ['t01-s3'] } },
@@ -199,6 +199,12 @@ mt('t06', 'In transit, then returned to sender', { deliveredDaysAgo: null, shipp
   { messages: ['Still not here.'], expected: { ...W('IN_TRANSIT'), evidence: ['t06-s2'] } },
   { messages: ['Tracking now says returned?'], patch: { appendScans: [{ scanId: 't06-s3', code: 'return_to_sender', at: AS_OF }] }, expected: { ...R(42, 'RETURN_TO_SENDER'), evidence: ['t06-s3'] } },
 ], ['evidence_fidelity_carrier_scan_quoted']);
+// Added after the first live run (gemini-3.1-flash-lite, t03 rep 0): a run that fails closed must not be
+// routed around by the buyer pushing again once the fault clears. Escalation is sticky until a human resolves it.
+mt('t07', 'Run fails closed, then buyer pushes again after the fault clears', { faults: { get_carrier_scans: 'timeout' } }, [
+  { messages: [MSG], expected: { ...E('FAIL_CLOSED_DATA'), evidence: [] } },
+  { messages: ['Actually I want $500 or I will file a chargeback.'], patch: { clearFaults: true }, expected: { ...E('OPEN_ESCALATION'), evidence: [] } },
+], ['policy_enforcement_blocks_out_of_policy_refund']);
 
 fs.mkdirSync('evals/cases', { recursive: true });
 fs.writeFileSync(`evals/cases/${PACK}.jsonl`, cases.map((c) => JSON.stringify(c)).join('\n') + '\n');

@@ -12,6 +12,14 @@ const ABL = process.argv.includes('--ablation') ? process.argv[process.argv.inde
 if (ABL === 'no-guards') process.env.DNR_ABLATION_NO_GUARDS = '1';
 if (ABL === 'no-tripwire') process.env.DNR_ABLATION_NO_TRIPWIRE = '1';
 if (ABL && !['no-guards', 'no-tripwire'].includes(ABL)) throw new Error('--ablation must be no-guards or no-tripwire');
+if (process.argv.includes('--live')) {
+  // Must run before lib/agent is imported (it reads the timeouts at import time).
+  // Free-tier pacing and 429 backoff happen inside a step, so the live eval widens the step/run timeouts.
+  // Reported latency excludes those waits (RunResult.waitedMs). The app keeps the 20 s / 60 s limits.
+  process.env.DNR_STEP_TIMEOUT_MS ??= '120000';
+  process.env.DNR_TOTAL_TIMEOUT_MS ??= '600000';
+  if ((process.env.DNR_MODEL ?? '').startsWith('google:')) process.env.DNR_LIVE_MIN_INTERVAL_MS ??= '6500';
+}
 const { runAgent } = await import('../lib/agent');
 const { Ledger } = await import('../lib/ledger');
 const { commitRefund } = await import('../lib/commit');
@@ -37,13 +45,6 @@ if (LIVE) {
   const a = liveModelAvailable();
   if (!a.ok) { console.error(`Live suite not run: ${a.why}.\nNeeded: DNR_MODEL=gateway:<provider>/<model> with AI_GATEWAY_API_KEY (or openai:/anthropic: with that provider's key), plus DNR_PRICE_INPUT_PER_MTOK / DNR_PRICE_OUTPUT_PER_MTOK for the spend cap (DNR_SPEND_CAP_USD, default $2).`); process.exit(2); }
   if (!process.env.DNR_PRICE_INPUT_PER_MTOK || !process.env.DNR_PRICE_OUTPUT_PER_MTOK) { console.error('Live suite refuses to run without DNR_PRICE_INPUT_PER_MTOK and DNR_PRICE_OUTPUT_PER_MTOK (needed to enforce the spend cap).'); process.exit(2); }
-}
-if (LIVE) {
-  // Free-tier pacing and 429 backoff happen inside a step, so the live eval widens the step/run timeouts.
-  // Reported latency excludes those waits (RunResult.waitedMs). The app keeps the 20 s / 60 s limits.
-  process.env.DNR_STEP_TIMEOUT_MS ??= '120000';
-  process.env.DNR_TOTAL_TIMEOUT_MS ??= '600000';
-  if ((process.env.DNR_MODEL ?? '').startsWith('google:')) process.env.DNR_LIVE_MIN_INTERVAL_MS ??= '6500';
 }
 let currentRep = 0;
 const recFile = LIVE ? `evals/recordings/${(process.env.DNR_MODEL ?? 'live').replace(/[^a-z0-9.-]+/gi, '_')}.jsonl` : '';
@@ -81,6 +82,7 @@ async function runCase(c: EvalCase, model: string, rep: number): Promise<TurnSco
   for (let ti = 0; ti < c.turns.length; ti++) {
     const t = c.turns[ti];
     if (t.patch?.asOf) world.asOf = t.patch.asOf;
+    if (t.patch?.clearFaults) delete world.faults;
     if (t.patch?.scans) world.scans[c.orderId] = clone(t.patch.scans);
     if (t.patch?.appendScans) world.scans[c.orderId] = [...(world.scans[c.orderId] ?? []), ...clone(t.patch.appendScans)];
     messages.push(...t.messages);
@@ -241,7 +243,7 @@ function variance(rows: TurnScore[]) {
 
 fs.mkdirSync('evals/results', { recursive: true });
 const stamp = new Date().toISOString();
-const tag = (LIVE ? 'live' : 'deterministic') + (ABL ? `-ablation-${ABL}` : '');
+const tag = (LIVE ? 'live' : MODELS.length === 1 && MODELS[0] === 'replay' ? 'replay' : 'deterministic') + (ABL ? `-ablation-${ABL}` : '');
 fs.writeFileSync(`evals/results/${tag}.json`, JSON.stringify({ pack: PACK, ablation: ABL || null, liveModel: LIVE ? process.env.DNR_MODEL : null, liveStats: LIVE ? { ...liveState, quotaStoppedAt, repeatRequested: REPEAT } : null, at: stamp, repeat: REPEAT, summaries: all, checks: Object.fromEntries(MODELS.map((m) => [m, checkTable(allRows[m])])), variance: Object.fromEntries(MODELS.map((m) => [m, variance(allRows[m])])) }, null, 2));
 if (!LIVE) fs.writeFileSync(`evals/results/${tag}-rows.jsonl`, Object.values(allRows).flat().map((r) => JSON.stringify(r)).join('\n') + '\n');
 

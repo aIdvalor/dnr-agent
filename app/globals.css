@@ -88,3 +88,4 @@ footer { color: var(--muted); font-size: 12px; margin-top: 12px; text-align: cen
   .cases h2, .ledger { grid-column: 1 / -1; }
   .case { margin: 0; }
 }
+.le.escalated { border-left-color: var(--wait); opacity: .85; }
