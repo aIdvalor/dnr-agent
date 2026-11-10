@@ -1,0 +1,42 @@
+{
+  "name": "dnr-agent-v2",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "eval": "tsx evals/run.ts",
+    "eval:live": "tsx evals/run.ts --live",
+    "gate": "npm run typecheck && npm run test && tsx evals/run.ts --gate",
+    "eval:all": "bash scripts/eval-all.sh",
+    "cases": "tsx evals/build-cases.ts",
+    "report": "tsx evals/report.ts",
+    "shots": "tsx scripts/shots.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.99",
+    "@ai-sdk/gateway": "^4.0.139",
+    "@ai-sdk/openai": "^4.0.111",
+    "ai": "^7.0.166",
+    "next": "^16.4.6",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "playwright-core": "^1.65.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "_note": "Synthetic, generic marketplace policy for delivered-but-not-received (DNR) claims. Single source of truth for lib/policy.ts. Values are illustrative, not any real company's policy.",
+  "version": "2026-11-09.1",
+  "wait_days_after_delivery": 3,
+  "policy_window_days": 40,
+  "in_transit_grace_days": 7,
+  "label_only_stale_days": 10,
+  "buyer_risk": {
+    "high_claims_12m": 4,
+    "medium_claims_12m": 2,
+    "chargeback_pattern": {
+      "min_chargebacks_12m": 1,
+      "min_claims_12m": 2
+    },
+    "new_account_days": 14,
+    "new_account_high_min_value_usd": 100,
+    "medium_account_age_days": 90
+  },
+  "refund_cap_usd": {
+    "_shape": "category -> buyer risk -> order total must be strictly below this for the agent to propose a refund. null = always escalate.",
+    "general": {
+      "low": 150,
+      "medium": 75,
+      "high": null
+    },
+    "electronics": {
+      "low": 100,
+      "medium": 50,
+      "high": null
+    },
+    "luxury": {
+      "low": null,
+      "medium": null,
+      "high": null
+    }
+  },
+  "injection_patterns": [
+    "ignore (all |the |any |your )?(previous |prior |above )?(policy|policies|instructions|rules|carrier|guidelines|limits)",
+    "disregard (all |the |any |your )?(previous |prior |above )?(policy|policies|instructions|rules|guidelines|limits)",
+    "\\bsystem\\s*(prompt|override|message)?\\s*:\\s*(ignore|you|approve|issue|refund|override|disregard|new|grant)",
+    "\\b(assistant|agent|ai|model|bot|llm)\\s*[:,]\\s*(please\\s+)?(you must|issue|refund|approve|call|run|execute|mark|set)",
+    "(already|pre-?)\\s?approved",
+    "override (the )?(approval|policy|limit|cap|rules)",
+    "(call|invoke|use|run) (the )?(commit_refund|propose_refund|submit_outcome|check_policy)",
+    "</?(policy|system|instructions|tool|admin)>",
+    "(reveal|print|show|repeat) (your |the )?(system|instructions|prompt|tools)",
+    "new instructions?\\s*:",
+    "developer mode",
+    "as (your|the) (developer|admin|administrator|supervisor|system)",
+    "\\bjailbreak\\b"
+  ],
+  "fail_closed_on": [
+    "tool_error",
+    "tool_timeout",
+    "invalid_scan_sequence",
+    "unknown_order"
+  ],
+  "_injection_note": "injection_patterns apply to all untrusted text. carrier_note_out_of_domain applies only to carrier notes: a carrier has no reason to talk about refunds, money, eligibility or the agent, so any such mention is treated as instruction-like.",
+  "carrier_note_out_of_domain": [
+    "refund|reimburs|compensat|payout|pay ?out|credit (the|to|buyer|customer)|chargeback",
+    "\\$\\s?\\d|\\d+(\\.\\d+)?\\s?(\\$|usd|dollars|eur|euros)\\b",
+    "\\beligib|\\bapprov|\\bpolicy\\b|\\bpolicies\\b|\\bmax(imum)? amount",
+    "\\b(ai|llm|bot|chatbot|assistant|model)\\b",
+    "rembours|reembols|erstatt"
+  ]
+}
