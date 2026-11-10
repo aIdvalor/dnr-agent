@@ -78,5 +78,7 @@ export class Ledger {
     const p = this.propose({ ...e, policyVersion: 'seed' });
     return this.markCommitted(p.proposalId, 'seed');
   }
+  /** Demo helper: forget everything about one order (used when a multi-turn demo scenario restarts). */
+  clearOrder(orderId: string) { this.entries = this.entries.filter((e) => e.orderId !== orderId); this.save(); }
   reset() { this.entries = []; this.save(); }
 }

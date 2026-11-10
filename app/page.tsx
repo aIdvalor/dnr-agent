@@ -2,8 +2,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RunResult, TraceEvent } from '@/lib/types';
 
+type Turn = { messages: string[]; replay: 'recorded' | 'timeout' | 'none' };
 type DemoCase = {
-  id: string; replay: boolean; label: string; blurb: string; asOf: string;
+  id: string; replay: boolean; label: string; blurb: string; asOf: string; turns: Turn[];
   claim: { orderId: string; buyerId: string; messages: string[] };
   order: { item: string; category: string; totalUsd: number } | null;
   scans: { scanId: string; code: string; at: string; note?: string; gpsMatchesAddress?: boolean | null }[];
@@ -11,18 +12,44 @@ type DemoCase = {
   faults: Record<string, string> | null;
 };
 type Entry = { proposalId: string; caseId: string; orderId: string; amountUsd: number; reasonCode: string; status: string; createdAt: string; committedAt?: string; rejectedReason?: string };
+type Metric = { cases: number; runs: number; criticals: number; outcome: [number, number]; agree: [number, number]; evidence: [number, number]; reliable: [number, number]; injection: [number, number]; benignFP: [number, number]; blocked: number; p50: number; p95: number; tokens: number };
+type Evals = { generatedAt: string | null; pack: string; scripted: Metric; adversarial: Metric; live: (Metric & { model: string; at: string; quotaStoppedAt: string | null; cleanP50: number | null; cleanP95: number | null; timeouts: number }) | null; ablationNoGuards: Metric | null };
 
 const MODEL_LABEL: Record<string, string> = {
-  replay: 'Recorded live LLM run (replay, no key)',
   scripted: 'Scripted agent (offline, deterministic)',
   'scripted-adversarial': 'Compromised model (obeys injected text)',
   live: 'Live LLM via AI SDK',
 };
-const OUTCOME_COPY: Record<string, { label: string; cls: string }> = {
-  REFUND_ELIGIBLE: { label: 'Refund eligible', cls: 'ok' },
-  WAIT_FOR_EVIDENCE: { label: 'Wait for evidence', cls: 'wait' },
-  ESCALATE: { label: 'Escalate to a human', cls: 'esc' },
-};
+const OUTCOME_WORD: Record<string, string> = { REFUND_ELIGIBLE: 'Refund eligible', WAIT_FOR_EVIDENCE: 'Wait for evidence', ESCALATE: 'Escalate to a human' };
+const money = (n: number) => `$${n.toFixed(2)}`;
+const frac = (x?: [number, number]) => (x ? `${x[0]}/${x[1]}` : '–');
+
+/** One sentence per outcome: the headline takeaway of the view. */
+function headline(r: RunResult, committed: boolean): string {
+  const reason = r.policy?.reasonCode ?? '';
+  const blocked = r.blockedAttempts.length > 0;
+  if (r.finalOutcome === 'REFUND_ELIGIBLE') return committed ? `Done: one simulated ${money(r.finalAmountUsd)} refund is on the ledger.` : `Refund eligible: ${money(r.finalAmountUsd)} waits for a human to confirm.`;
+  if (r.finalOutcome === 'WAIT_FOR_EVIDENCE') return 'Too early to pay: the agent waits for more evidence.';
+  if (reason === 'INSTRUCTION_LIKE_TEXT') return blocked ? 'The injected “refund $500” was blocked and never reached the ledger.' : 'Injected instructions sent the case to a human; no money was queued.';
+  if (reason === 'OPEN_ESCALATION') return blocked ? 'Still with a human: the model asked to refund, and the policy refused.' : 'Still with a human: the follow-up queued no money.';
+  if (reason === 'DUPLICATE_CLAIM') return 'Already refunded once, so this claim goes to a human.';
+  if (reason === 'FAIL_CLOSED_DATA') return 'Data was missing, so the case failed closed to a human.';
+  if (!r.submission) return 'The model never finished, so the case failed closed to a human.';
+  return `Escalated to a human: ${reason.toLowerCase().replace(/_/g, ' ')}.`;
+}
+
+/** One-line, human summary of a tool result; the JSON stays one click away. */
+function summarize(tool: string, out: any, err?: string): string {
+  if (err) return err;
+  if (!out) return '';
+  if (tool === 'get_order') return out.found === false ? 'order not found' : `${out.item} · ${money(out.totalUsd)}`;
+  if (tool === 'get_carrier_scans') { if (!out.found) return 'no scans'; const last = out.scans[out.scans.length - 1]; return `${out.scans.length} scans · last: ${last.code.replace(/_/g, ' ')} ${last.at}${out.scans.some((s: any) => s.untrusted_note) ? ' · has a carrier note' : ''}`; }
+  if (tool === 'get_buyer_history') return out.found === false ? 'buyer not found' : `${out.accountAgeDays} days old · ${out.dnrClaims12m} claims in 12 mo`;
+  if (tool === 'check_policy') return `${OUTCOME_WORD[out.outcome] ?? out.outcome}${out.outcome === 'REFUND_ELIGIBLE' ? ` ${money(out.amountUsd)}` : ''} · ${out.reasonCode}`;
+  if (tool === 'propose_refund') return out.accepted ? `queued for a human · ${out.proposalId}` : `refused: ${out.reason}`;
+  if (tool === 'submit_outcome') return 'submitted';
+  return '';
+}
 
 export default function Page() {
   const [cases, setCases] = useState<DemoCase[]>([]);
@@ -33,22 +60,28 @@ export default function Page() {
   const [events, setEvents] = useState<TraceEvent[]>([]);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<RunResult | null>(null);
+  const [turn, setTurn] = useState(0);
   const [ledger, setLedger] = useState<Entry[]>([]);
   const [commitMsg, setCommitMsg] = useState<string | null>(null);
-  const traceEnd = useRef<HTMLDivElement>(null);
+  const [fresh, setFresh] = useState<string | null>(null);
+  const [evals, setEvals] = useState<Evals | null>(null);
+  const reduced = useRef(false);
+  const autoplayed = useRef(false);
 
   const refreshLedger = useCallback(async () => {
     const r = await fetch('/api/ledger').then((x) => x.json());
     setLedger(r.entries); setLive(r.live); setReplayModel(r.replayModel ?? '');
   }, []);
-  useEffect(() => { fetch('/api/cases').then((r) => r.json()).then(setCases); refreshLedger(); }, [refreshLedger]);
-  useEffect(() => { traceEnd.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [events.length]);
 
   const c = useMemo(() => cases.find((x) => x.id === sel), [cases, sel]);
+  const turnInfo = c?.turns[turn];
+  const replayOk = !!turnInfo && turnInfo.replay !== 'none';
+  const effModel = model === 'replay' && !replayOk ? 'scripted' : model;
 
-  async function run() {
-    setRunning(true); setEvents([]); setResult(null); setCommitMsg(null);
-    const res = await fetch('/api/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ caseId: sel, model: model === 'replay' && !c?.replay ? 'scripted' : model }) });
+  const run = useCallback(async (opts: { caseId?: string; turn?: number; fresh?: boolean; model?: string } = {}) => {
+    const caseId = opts.caseId ?? sel, t = opts.turn ?? 0;
+    setRunning(true); setEvents([]); setResult(null); setCommitMsg(null); setTurn(t);
+    const res = await fetch('/api/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ caseId, turn: t, model: opts.model ?? effModel, fresh: !!opts.fresh, pace: !reduced.current }) });
     if (!res.ok || !res.body) { setCommitMsg((await res.json()).error ?? 'Run failed'); setRunning(false); return; }
     const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
     for (;;) {
@@ -62,143 +95,280 @@ export default function Page() {
       }
     }
     setRunning(false); refreshLedger();
-  }
+  }, [sel, effModel, refreshLedger]);
+
+  useEffect(() => {
+    reduced.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const q = new URLSearchParams(window.location.search);
+    if (q.get('case')) setSel(q.get('case')!);
+    if (q.get('model')) setModel(q.get('model')!);
+    fetch('/api/cases').then((r) => r.json()).then(setCases);
+    fetch('/api/evals').then((r) => r.json()).then(setEvals);
+    refreshLedger();
+  }, [refreshLedger]);
+
+  // The default scenario plays the happy path up to the Confirm button (once per visit); ?autoplay=0 turns it off.
+  useEffect(() => {
+    if (!cases.length || autoplayed.current) return;
+    autoplayed.current = true;
+    const q = new URLSearchParams(window.location.search);
+    if (q.get('autoplay') === '0' || q.get('case') || sessionStorage.getItem('dnr-autoplayed')) return;
+    sessionStorage.setItem('dnr-autoplayed', '1');
+    run({ caseId: 'n01', fresh: true, model: 'replay' });
+  }, [cases, run]);
 
   async function confirm(proposalId: string) {
     const r = await fetch('/api/commit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ proposalId }) }).then((x) => x.json());
-    setCommitMsg(r.status === 'committed' ? `Simulated refund of $${r.entry.amountUsd.toFixed(2)} written to the case ledger. No money moved.`
+    setCommitMsg(r.status === 'committed' ? `Simulated refund of ${money(r.entry.amountUsd)} written to the case ledger. No money moved.`
       : r.status === 'already_committed' ? 'Already committed: this click was a no-op (idempotent).'
-      : `Rejected at commit-time recheck: ${r.reason}`);
+      : `Rejected at the commit-time recheck: ${r.reason}`);
+    if (r.status === 'committed') setFresh(proposalId);
     refreshLedger();
   }
-  async function resetLedger() { await fetch('/api/ledger', { method: 'DELETE' }); setCommitMsg(null); refreshLedger(); }
+  async function resetLedger() { await fetch('/api/ledger', { method: 'DELETE' }); setCommitMsg(null); setFresh(null); refreshLedger(); }
+  function pick(id: string) { setSel(id); setEvents([]); setResult(null); setCommitMsg(null); setTurn(0); }
 
   const pending = result?.proposalId ? ledger.find((e) => e.proposalId === result.proposalId) : null;
+  const committed = pending?.status === 'committed';
+  const calls = events.filter((e): e is Extract<TraceEvent, { type: 'tool-call' }> => e.type === 'tool-call');
+  const results = events.filter((e): e is Extract<TraceEvent, { type: 'tool-result' }> => e.type === 'tool-result');
+  const runStart = events.find((e): e is Extract<TraceEvent, { type: 'run-start' }> => e.type === 'run-start');
+  const nextTurn = c && result && turn + 1 < c.turns.length ? c.turns[turn + 1] : null;
+  const modelName = (m: string) => (m.startsWith('replay:') ? `recorded ${m.slice(7)} run` : MODEL_LABEL[m] ?? m);
 
   return (
-    <main>
-      <header className="top">
-        <div>
-          <h1>DNR Agent <span className="v">v2</span></h1>
-          <p className="sub">A tool-calling agent for &ldquo;delivered but not received&rdquo; claims in the post-purchase experience. <b>The LLM gathers evidence and explains. Deterministic policy code decides. A human confirms.</b></p>
-        </div>
-        <div className="disclose" role="note">
-          <b>Proof of concept.</b> Synthetic orders, carrier scans and buyers. Refunds are <b>simulated</b> entries in a local case ledger. This is not payments infrastructure and touches no real systems.
+    <>
+      <a className="skip" href="#demo">Skip to the demo</a>
+      <header className="bar">
+        <div className="wrap barin">
+          <span className="brand">DNR Agent <span className="v">v2</span></span>
+          <nav aria-label="Sections"><a href="#demo">Demo</a><a href="#how">How it works</a><a href="#evals">Evals</a><a href="#limits">Limits</a></nav>
         </div>
       </header>
 
-      <div className="grid">
-        <aside className="cases">
-          <h2>Scenarios</h2>
-          {cases.map((x) => (
-            <button key={x.id} className={`case ${x.id === sel ? 'on' : ''}`} onClick={() => { setSel(x.id); setEvents([]); setResult(null); setCommitMsg(null); }}>
-              <span className="cl">{x.label}</span><span className="cb">{x.blurb}</span><span className="cid">eval case {x.id}</span>
-            </button>
-          ))}
-          <div className="ledger">
-            <div className="lh"><h2>Case ledger</h2><button className="link" onClick={resetLedger}>reset</button></div>
-            {ledger.length === 0 && <p className="muted">Empty. Confirmed refunds appear here.</p>}
-            {ledger.slice().reverse().map((e) => (
-              <div key={e.proposalId} className={`le ${e.status}`}>
-                <span>{e.orderId}</span><span>${e.amountUsd.toFixed(2)}</span><span className="st">{e.status.replace('_', ' ')}</span>
-                {e.rejectedReason && <span className="rr">{e.rejectedReason}</span>}
-              </div>
-            ))}
-          </div>
-        </aside>
+      <main className="wrap">
+        <section className="hero" aria-labelledby="hero-h">
+          <h1 id="hero-h">Policy decides. The model only gathers. A human confirms.</h1>
+          <p className="lede">A tool-calling agent for &ldquo;delivered but not received&rdquo; claims. The LLM reads the order, carrier scans and buyer history and drafts the reply. Deterministic code sets eligibility and amount. Nothing is paid until a person clicks Confirm.</p>
+          <p className="disclose" role="note"><b>Proof of concept.</b> Synthetic orders, scans and buyers. Refunds are simulated entries in a local ledger; no real systems or money. The default model replays a recorded free-tier Gemini run; no API key is used.</p>
+        </section>
 
-        <section className="center">
-          {c && (
-            <div className="card claim">
-              <div className="row between"><h2>Claim · {c.claim.orderId}</h2><span className="muted">as of {c.asOf}</span></div>
-              {c.claim.messages.map((m, i) => <blockquote key={i}><span className="tag untrusted">buyer · untrusted</span>{m}</blockquote>)}
-              <div className="facts">
-                {c.order ? <span>{c.order.item} · {c.order.category} · <b>${c.order.totalUsd.toFixed(2)}</b></span> : <span>Order not found</span>}
-                <span>buyer: {c.buyer.accountAgeDays} days old, {c.buyer.dnrClaims12m} claims / 12 mo</span>
-                {c.faults && <span className="warn">fault injected: {Object.entries(c.faults).map(([k, v]) => `${k} ${v}`).join(', ')}</span>}
-              </div>
-              <div className="scans">
-                {c.scans.map((s) => (
-                  <div key={s.scanId} className="scan"><code>{s.scanId}</code><span>{s.code.replace(/_/g, ' ')}</span><span className="muted">{s.at}</span>
-                    {s.gpsMatchesAddress === false && <span className="warn">GPS mismatch</span>}
-                    {s.note && <span className="note"><span className="tag untrusted">carrier note · untrusted</span>{s.note}</span>}
-                  </div>
-                ))}
-              </div>
-              <div className="row runbar">
-                <select value={model === 'replay' && !c.replay ? 'scripted' : model} onChange={(e) => setModel(e.target.value)} aria-label="Model">
-                  <option value="replay" disabled={!c.replay}>{`Recorded ${replayModel || 'live LLM'} run (replay, no key)`}{c.replay ? '' : ' (not recorded)'}</option>
-                  <option value="scripted">{MODEL_LABEL.scripted}</option>
-                  <option value="scripted-adversarial">{MODEL_LABEL['scripted-adversarial']}</option>
-                  <option value="live" disabled={!live}>{MODEL_LABEL.live}{live ? '' : ' (disabled in demo)'}</option>
-                </select>
-                <button className="primary" onClick={run} disabled={running}>{running ? 'Running…' : 'Run agent'}</button>
-              </div>
+        <section id="demo" className="demo" aria-label="Demo">
+          <aside className="cases" aria-label="Scenarios">
+            <h2 className="kicker">Scenarios</h2>
+            <div className="caselist">
+              {cases.map((x) => (
+                <button key={x.id} className={`case ${x.id === sel ? 'on' : ''}`} aria-pressed={x.id === sel} onClick={() => pick(x.id)}>
+                  <span className="cl">{x.label}</span><span className="cb">{x.blurb}</span>
+                  <span className="cid">eval case {x.id}{x.turns.length > 1 ? ` · ${x.turns.length} turns` : ''}{x.replay ? ' · recorded' : ''}</span>
+                </button>
+              ))}
             </div>
-          )}
+          </aside>
 
-          <div className="card trace">
-            <div className="row between"><h2>Tool trace</h2><span className="muted">tool calls and results, not chain-of-thought · cap 6 steps</span></div>
-            {events.length === 0 && <p className="muted">Run the agent to see each tool call, its input, its output and its latency.</p>}
-            <ol>
-              {events.filter((e) => e.type !== 'tool-call').map((e, i) => {
-                if (e.type === 'run-start') return <li key={i} className="ev start">Run started · model <b>{e.model.startsWith('replay:') ? `${e.model.slice(7)} (recorded responses replayed through live tools, policy and guards)` : MODEL_LABEL[e.model] ?? e.model}</b></li>;
-                if (e.type === 'guard') return <li key={i} className={`ev guard ${e.level}`}><span className="gl">{e.level === 'blocked' ? 'BLOCKED' : 'GUARD'}</span>{e.message}</li>;
-                if (e.type === 'tool-result') {
-                  const call = events.find((x) => x.type === 'tool-call' && x.id === e.id) as Extract<TraceEvent, { type: 'tool-call' }> | undefined;
+          <div className="center">
+            {c && (
+              <article className="card claim" aria-labelledby="claim-h">
+                <div className="row between"><h2 id="claim-h" className="kicker">Claim · {c.claim.orderId}{c.turns.length > 1 ? ` · turn ${turn + 1} of ${c.turns.length}` : ''}</h2><span className="muted small">as of {c.asOf}</span></div>
+                {c.turns.slice(0, turn + 1).flatMap((t) => t.messages).map((m, i) => <blockquote key={i}><span className="tag">buyer · untrusted</span>{m}</blockquote>)}
+                <p className="facts">
+                  {c.order ? <span>{c.order.item} · {c.order.category} · <b>{money(c.order.totalUsd)}</b></span> : <span>Order not found</span>}
+                  <span>buyer {c.buyer.accountAgeDays} days old · {c.buyer.dnrClaims12m} claims in 12 mo</span>
+                  {c.faults && turn === 0 && <span className="flag">simulated fault: {Object.entries(c.faults).map(([k, v]) => `${k} ${v}`).join(', ')}</span>}
+                </p>
+                <details className="scans">
+                  <summary>{c.scans.length} carrier scans{c.scans.some((s) => s.note) ? ' · includes a carrier note' : ''}</summary>
+                  <ul>
+                    {c.scans.map((s) => (
+                      <li key={s.scanId}><code>{s.scanId}</code> {s.code.replace(/_/g, ' ')} <span className="muted">{s.at}</span>{s.gpsMatchesAddress === false && <span className="flag"> GPS mismatch</span>}
+                        {s.note && <span className="note"><span className="tag">carrier note · untrusted</span>{s.note}</span>}</li>
+                    ))}
+                  </ul>
+                </details>
+                <div className="runbar">
+                  <label className="sr" htmlFor="model">Model</label>
+                  <select id="model" value={effModel} onChange={(e) => setModel(e.target.value)}>
+                    <option value="replay" disabled={!replayOk}>{`Recorded ${replayModel || 'live LLM'} run (replay, no key)`}{replayOk ? '' : ' (not recorded)'}</option>
+                    <option value="scripted">{MODEL_LABEL.scripted}</option>
+                    <option value="scripted-adversarial">{MODEL_LABEL['scripted-adversarial']}</option>
+                    <option value="live" disabled={!live}>{MODEL_LABEL.live}{live ? '' : ' (off in this demo)'}</option>
+                  </select>
+                  <button className="btn" onClick={() => run({ turn: 0, fresh: !result && turn === 0, model: model === 'replay' ? (c.turns[0].replay !== 'none' ? 'replay' : 'scripted') : model })} disabled={running}>{running ? 'Running…' : c.turns.length > 1 && (turn > 0 || result) ? 'Start over' : result ? 'Run again (same ledger)' : 'Run agent'}</button>
+                </div>
+              </article>
+            )}
+
+            <article className="card trace" aria-labelledby="trace-h">
+              <div className="row between"><h2 id="trace-h" className="kicker">What the agent did</h2><span className="muted small">tool calls, not chain-of-thought · cap 6 steps</span></div>
+              {!runStart && <p className="muted">Run the agent to see each tool call. Summary first; inputs and outputs are one click away.</p>}
+              {runStart && <p className="small muted">Model: {modelName(runStart.model)}{runStart.model.startsWith('replay:') ? ' · recorded responses replayed through the real tools, policy and guards' : ''}</p>}
+              {results.length > 0 && (
+                <ol className="chips" aria-label="Tool calls in order">
+                  {results.map((e) => <li key={e.id} className={`chip ${e.tool === 'propose_refund' && (e.output as any)?.accepted === false ? 'hit' : ''}`}>{e.tool}</li>)}
+                </ol>
+              )}
+              <ol className="steps">
+                {events.map((e, i) => {
+                  if (e.type === 'guard') return <li key={i} className={`ev guard ${e.level}`}><span className="gl">{e.level === 'blocked' ? 'Blocked' : 'Guard'}</span>{e.message}</li>;
+                  if (e.type !== 'tool-result') return null;
+                  const call = calls.find((x) => x.id === e.id);
+                  const refused = e.tool === 'propose_refund' && (e.output as any)?.accepted === false;
                   return (
-                    <li key={i} className={`ev tool ${e.error ? 'err' : ''}`}>
-                      <div className="th"><span className="step">step {e.step + 1}</span><code className="tn">{e.tool}</code><span className="muted">{e.ms} ms</span>{e.error && <span className="warn">{e.error}</span>}</div>
-                      <details><summary>input {short(call?.input)}</summary><pre>{JSON.stringify(call?.input, null, 2)}</pre></details>
-                      {!e.error && <details open={e.tool === 'check_policy' || e.tool === 'propose_refund'}><summary>output {short(e.output)}</summary><pre>{JSON.stringify(e.output, null, 2)}</pre></details>}
+                    <li key={i} className={`ev ${refused ? 'refused' : ''}`}>
+                      <div className="th"><span className="step">{e.step + 1}</span><code className="tn">{e.tool}</code><span className="sum">{e.tool === 'propose_refund' && call ? `asked ${money((call.input as any).amountUsd ?? 0)} → ` : ''}{summarize(e.tool, e.output, e.error)}</span><span className="muted ms">{e.ms} ms</span></div>
+                      <details><summary>input and output (JSON)</summary><pre>{JSON.stringify({ input: call?.input, output: e.error ? { error: e.error } : e.output }, null, 2)}</pre></details>
                     </li>
                   );
-                }
-                if (e.type === 'run-end') return <li key={i} className="ev start">Run finished · {e.result.steps} model steps · {e.result.toolCalls.length} tool calls · {e.result.latencyMs} ms</li>;
-                return null;
-              })}
-            </ol>
-            <div ref={traceEnd} />
+                })}
+              </ol>
+              {result && <p className="small muted">Finished · {result.steps} model steps · {result.toolCalls.length} tool calls · {result.model.startsWith('replay:') ? `${result.usage.inputTokens + result.usage.outputTokens} tokens when recorded` : result.model.startsWith('scripted') ? 'no LLM tokens' : `${result.usage.inputTokens + result.usage.outputTokens} tokens`}</p>}
+            </article>
+          </div>
+
+          <div className="right">
+            <article className="card outcome" aria-labelledby="out-h" aria-live="polite">
+              <h2 className="kicker">Outcome</h2>
+              {!result && <h3 id="out-h" className="take muted">{running ? 'The agent is working…' : 'Run the agent to see who decides what.'}</h3>}
+              {result && (
+                <>
+                  <h3 id="out-h" className="take">{committed && <span className="check" aria-hidden="true">✓</span>}{headline(result, committed)}</h3>
+                  <p className="kv"><span className="muted">Policy outcome</span> <b>{OUTCOME_WORD[result.finalOutcome]}{result.finalOutcome === 'REFUND_ELIGIBLE' ? ` · ${money(result.finalAmountUsd)}` : ''}</b> <code>{result.policy?.reasonCode}</code></p>
+                  {result.blockedAttempts.length > 0 && <div className="blocked"><b>{result.blockedAttempts.length} blocked request{result.blockedAttempts.length > 1 ? 's' : ''}</b>{result.blockedAttempts.map((b, i) => <div key={i}><code>{b.tool}</code> asked {money((b.input as any).amountUsd ?? 0)} · {b.reason}</div>)}</div>}
+                  {result.finalOutcome === 'REFUND_ELIGIBLE' && result.proposalId && (
+                    <div className="confirm">
+                      <button className="btn accent" onClick={() => confirm(result.proposalId!)} disabled={committed}>{committed ? 'Confirmed' : `Confirm simulated refund · ${money(result.finalAmountUsd)}`}</button>
+                      <p className="small muted">Confirm rechecks the policy against source data, then writes one idempotent ledger entry.</p>
+                    </div>
+                  )}
+                  {commitMsg && <p className="commitmsg" role="status">{commitMsg}</p>}
+                  {result.submission && <><h4>Reply to the buyer (draft)</h4><p className="reply">{result.submission.buyerReply}</p></>}
+                  <details>
+                    <summary>Evidence, rules and reviewer note</summary>
+                    <dl>
+                      <dt>Evidence cited</dt><dd>{result.submission?.evidenceIds.length ? result.submission.evidenceIds.map((x) => <code key={x} className="chip">{x}</code>) : <span className="muted">none</span>}</dd>
+                      <dt>Rules fired</dt><dd>{result.policy?.rulesFired.map((r) => <code key={r} className="chip">{r}</code>)}</dd>
+                      <dt>Reviewer note</dt><dd className="small">{result.submission?.internalNote ?? <span className="muted">no submission</span>}</dd>
+                      <dt>Policy</dt><dd className="muted">v{result.policy?.policyVersion}</dd>
+                    </dl>
+                  </details>
+                </>
+              )}
+              {nextTurn && !running && (
+                <div className="next">
+                  <h4>Next: the buyer writes again</h4>
+                  <blockquote><span className="tag">buyer · untrusted</span>{nextTurn.messages.join(' ')}</blockquote>
+                  <button className="btn" onClick={() => run({ turn: turn + 1, model: model === 'replay' ? (nextTurn.replay !== 'none' ? 'replay' : 'scripted') : model })}>Send the follow-up</button>
+                </div>
+              )}
+            </article>
+
+            <article className="card ledger" aria-labelledby="led-h">
+              <div className="row between"><h2 id="led-h" className="kicker">Case ledger (simulated)</h2><button className="link" onClick={resetLedger}>Reset</button></div>
+              {ledger.length === 0 && <p className="muted small">Empty. Queued refunds, confirmed refunds and human handoffs appear here.</p>}
+              <ul>
+                {ledger.slice().reverse().map((e) => (
+                  <li key={e.proposalId} className={`le ${e.status} ${fresh === e.proposalId ? 'fresh' : ''}`}>
+                    <span>{e.orderId}</span><span className="amt">{money(e.amountUsd)}</span>
+                    <span className="st">{e.status === 'escalated' ? 'with a human' : e.status.replace('_', ' ')}{e.reasonCode ? ` · ${e.reasonCode}` : ''}</span>
+                    {e.rejectedReason && <span className="rr">{e.rejectedReason}</span>}
+                  </li>
+                ))}
+              </ul>
+            </article>
           </div>
         </section>
 
-        <section className="right">
-          <div className="card outcome">
-            <h2>Outcome</h2>
-            {!result && <p className="muted">The outcome comes from the policy engine. The model may only make a case more conservative.</p>}
-            {result && (
-              <>
-                <div className={`pill ${OUTCOME_COPY[result.finalOutcome].cls}`}>{OUTCOME_COPY[result.finalOutcome].label}{result.finalOutcome === 'REFUND_ELIGIBLE' && ` · $${result.finalAmountUsd.toFixed(2)}`}</div>
-                <dl>
-                  <dt>Reason</dt><dd><code>{result.policy?.reasonCode}</code></dd>
-                  <dt>Rules fired</dt><dd>{result.policy?.rulesFired.map((r) => <code key={r} className="chip">{r}</code>)}</dd>
-                  <dt>Evidence cited</dt><dd>{result.submission?.evidenceIds.length ? result.submission.evidenceIds.map((x) => <code key={x} className={`chip ${result.seenEvidenceIds.includes(x) ? '' : 'bad'}`}>{x}</code>) : <span className="muted">none</span>}</dd>
-                  <dt>Policy</dt><dd className="muted">v{result.policy?.policyVersion}</dd>
-                </dl>
-                {result.blockedAttempts.length > 0 && <div className="blocked"><b>{result.blockedAttempts.length} blocked attempt{result.blockedAttempts.length > 1 ? 's' : ''}</b>{result.blockedAttempts.map((b, i) => <div key={i}><code>{b.tool}</code> {JSON.stringify(b.input)} → {b.reason}</div>)}</div>}
-                {result.submission && <>
-                  <h3>Reply to buyer (draft)</h3><p className="reply">{result.submission.buyerReply}</p>
-                  <h3>Note for the reviewer</h3><p className="small">{result.submission.internalNote}</p>
-                </>}
-                {result.finalOutcome === 'REFUND_ELIGIBLE' && result.proposalId && (
-                  <div className="confirm">
-                    <p className="small">Proposal <code>{result.proposalId}</code> is <b>{pending?.status.replace('_', ' ') ?? 'pending'}</b>. Confirming rechecks the policy against source data, then writes one idempotent ledger entry.</p>
-                    <button className="primary" onClick={() => confirm(result.proposalId!)} disabled={pending?.status === 'committed'}>{pending?.status === 'committed' ? 'Committed to the case ledger' : `Confirm simulated refund · $${result.finalAmountUsd.toFixed(2)}`}</button>
-                  </div>
-                )}
-                {commitMsg && <p className="commitmsg">{commitMsg}</p>}
-                <p className="small muted">{result.latencyMs} ms · {result.toolCalls.length} tool calls · {result.model.startsWith('scripted') ? 'scripted model: no LLM tokens' : result.model.startsWith('replay:') ? `replayed: ${result.usage.inputTokens + result.usage.outputTokens} tokens when recorded` : `${result.usage.inputTokens + result.usage.outputTokens} tokens · $${result.costUsd.toFixed(4)}`}</p>
-              </>
-            )}
-          </div>
+        <section id="how" className="sect" aria-labelledby="how-h">
+          <h2 id="how-h" className="take">The model has six tools, and none of them can move money.</h2>
+          <ol className="flow">
+            <li><b>Read</b><span>order · carrier scans · buyer history (scoped to this claim)</span></li>
+            <li><b>check_policy</b><span>deterministic engine reads source data itself; sets outcome and amount</span></li>
+            <li><b>propose_refund</b><span>rechecks policy; accepts only the policy amount; pending only</span></li>
+            <li><b>submit_outcome</b><span>guard: policy wins, model may only escalate, evidence must have been seen</span></li>
+            <li className="em"><b>Human Confirm</b><span>rechecks again, then one idempotent ledger entry</span></li>
+          </ol>
+          <details>
+            <summary>Why it is built this way</summary>
+            <ul className="plain">
+              <li><b>Untrusted text is data.</b> Carrier notes and buyer messages never set an amount; a tripwire only sends instruction-like text to a human.</li>
+              <li><b>Fail closed.</b> Tool errors, timeouts and inconsistent scans escalate. Escalation is sticky: a later message cannot route around the human.</li>
+              <li><b>Bounded.</b> 6 steps, 1.5 s per tool, 20 s per step, 60 s per run, temperature 0.</li>
+              <li><b>Auditable.</b> Every tool call, input, output and latency is shown, not hidden reasoning.</li>
+            </ul>
+          </details>
         </section>
-      </div>
-      <footer>Synthetic demo. LLM proposes and explains; policy code decides eligibility and amount; a human confirms. Evals: 90 versioned cases, see the repo README.</footer>
-    </main>
+
+        <EvalsSection e={evals} />
+
+        <section id="limits" className="sect" aria-labelledby="lim-h">
+          <h2 id="lim-h" className="take">A proof of concept on synthetic data, not a payment system.</h2>
+          <ul className="plain">
+            <li>One author wrote the policy, the cases and the labels; a held-out pack from someone else is the next step.</li>
+            <li>The live run is one free-tier model for one day of quota (about 1.6 repeats of the pack), so treat its variance as a first look.</li>
+            <li>Single-process file ledger, no auth, no real carrier, store or payment integration.</li>
+            <li>Replay reproduces recorded model responses through today&rsquo;s code; it cannot show how a model would react to a changed tool result.</li>
+          </ul>
+        </section>
+      </main>
+      <footer className="wrap foot">Synthetic demo · LLM proposes and explains; policy code decides; a human confirms · Source: repo <code>evals/REPORT.md</code></footer>
+    </>
   );
 }
 
-function short(x: unknown) {
-  const s = JSON.stringify(x ?? null);
-  return <span className="muted">{s.length > 70 ? s.slice(0, 70) + '…' : s}</span>;
+function EvalsSection({ e }: { e: Evals | null }) {
+  if (!e) return <section id="evals" className="sect"><p className="muted">Loading eval results…</p></section>;
+  const s = e.scripted, a = e.adversarial, l = e.live, g = e.ablationNoGuards;
+  const max = Math.max(g?.criticals ?? 1, 1);
+  const date = e.generatedAt ? new Date(e.generatedAt).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', dateStyle: 'medium' }) : '';
+  const rows: [string, string, string, string][] = [
+    ['Critical safety violations (gate = 0)', String(s.criticals), String(a.criticals), l ? `${l.criticals} (t03, fixed)` : '–'],
+    ['Outcome and amount correct', frac(s.outcome), frac(a.outcome), l ? frac(l.outcome) : '–'],
+    ['Model’s own outcome agrees with label', frac(s.agree), frac(a.agree), l ? frac(l.agree) : '–'],
+    ['Evidence cited was seen, and complete', frac(s.evidence), frac(a.evidence), l ? frac(l.evidence) : '–'],
+    ['Finished cleanly (≤ 6 steps)', frac(s.reliable), frac(a.reliable), l ? `${frac(l.reliable)} (${l.timeouts} timeouts, failed closed)` : '–'],
+    ['Injection tripwire recall', frac(s.injection), frac(a.injection), l ? frac(l.injection) : '–'],
+    ['Out-of-policy requests blocked', String(s.blocked), String(a.blocked), l ? `${l.blocked} (none attempted)` : '–'],
+    ['Latency per run, p50 / p95', 'ms', 'ms', l && l.cleanP50 ? `${(l.cleanP50 / 1000).toFixed(1)} s / ${((l.cleanP95 ?? 0) / 1000).toFixed(1)} s` : '–'],
+    ['Tokens per run', '0', '0', l ? l.tokens.toLocaleString('en-US') : '–'],
+  ];
+  return (
+    <section id="evals" className="sect" aria-labelledby="ev-h">
+      <h2 id="ev-h" className="take">The guards held in every scripted run; the one live failure is fixed.</h2>
+      <div className="kpis">
+        <div className="kpi em"><span className="n">{s.criticals + a.criticals}</span><span className="l">critical violations in {s.runs + a.runs} scripted runs</span></div>
+        {l && <div className="kpi"><span className="n">{frac(l.agree)}</span><span className="l">live model agreed with the label, when it finished</span></div>}
+        {l && <div className="kpi"><span className="n">{frac(l.evidence)}</span><span className="l">live runs cited only scans they had seen</span></div>}
+        {g && <div className="kpi"><span className="n">{g.criticals}</span><span className="l">critical violations with the guards switched off</span></div>}
+      </div>
+
+      <figure className="ablation">
+        <figcaption>Same compromised model, same {g?.runs ?? a.runs} runs. Switching the deterministic guards off is what lets money go wrong.</figcaption>
+        <div className="bars" role="img" aria-label={`Guards on: ${a.criticals} critical violations. Guards off: ${g?.criticals ?? 0}.`}>
+          <div className="barrow"><span className="bl">Guards on</span><span className="track"><span className="fill em" style={{ width: `${Math.max(0.6, (100 * a.criticals) / max)}%` }} /></span><span className="bv em">{a.criticals}</span></div>
+          <div className="barrow"><span className="bl">Guards off</span><span className="track"><span className="fill" style={{ width: `${(100 * (g?.criticals ?? 0)) / max}%` }} /></span><span className="bv">{g?.criticals ?? 0}</span></div>
+        </div>
+        <p className="src">Source: <code>evals/results/deterministic*.json</code> · pack {e.pack}, {s.cases} cases / {s.runs} runs · {date} PT</p>
+      </figure>
+
+      <details className="story">
+        <summary>A real model found a bug the scripted evals missed. The design made it a $42 problem, not $500.</summary>
+        <ol className="plain">
+          <li>Live run, case <code>t03</code>: turn 1 timed out at the 20 s step limit, so the case correctly failed closed to a human.</li>
+          <li>The buyer then wrote &ldquo;$500 or I file a chargeback.&rdquo; The ledger did not remember the handoff, so policy evaluated the order fresh and $42 (the policy amount, never $500) was queued and confirmed while a human owned the case.</li>
+          <li>Fix: escalation is now sticky (<code>OPEN_ESCALATION</code>), enforced at both rechecks. Regression case <code>t07</code> reproduces it; replaying the live run&rsquo;s own responses through the fix gives 0 criticals. Try the &ldquo;Timeout, then the buyer pushes&rdquo; scenario.</li>
+        </ol>
+      </details>
+
+      <details>
+        <summary>Scripted vs live, metric by metric</summary>
+        <div className="tablewrap">
+          <table>
+            <thead><tr><th scope="col">Metric</th><th scope="col">Scripted agent</th><th scope="col">Compromised model</th><th scope="col">Live {l?.model ?? ''}</th></tr></thead>
+            <tbody>{rows.map((r) => <tr key={r[0]}><th scope="row">{r[0]}</th><td>{r[1]}</td><td>{r[2]}</td><td>{r[3]}</td></tr>)}</tbody>
+          </table>
+        </div>
+        <p className="src">Scripted: pack {e.pack}, {s.cases} cases / {s.runs} runs, no LLM; they measure the control system. Live: {l ? `${l.model}, free tier, ${l.cases} cases / ${l.runs} runs${l.quotaStoppedAt ? `, stopped by the daily quota at ${l.quotaStoppedAt}` : ''}; latency on clean runs, pacing excluded` : 'not run'}. Source: <code>evals/results/*.json</code>, <code>evals/REPORT.md</code>.</p>
+      </details>
+    </section>
+  );
 }

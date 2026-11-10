@@ -8,6 +8,11 @@ import os from 'node:os';
 import path from 'node:path';
 
 describe('ledger + commit (human Confirm path)', () => {
+  it('flags a reply that says a refund was initiated on an escalated case (live t03 replay)', () => {
+    const r = 'I am sorry to hear you have not received your order. I have reviewed your claim and initiated a refund request for the order total.';
+    expect(replyProblems(r, 'ESCALATE', 0).join(' ')).toMatch(/underway/);
+    expect(replyProblems('A specialist is reviewing your case and will reply to you directly.', 'ESCALATE', 0)).toEqual([]);
+  });
   it('escalation is sticky: a proposal queued after a handoff cannot commit until a human resolves it', () => {
     // Regression for live run t03 (gemini-3.1-flash-lite): turn 1 failed closed, turn 2 paid.
     const l = new Ledger();
