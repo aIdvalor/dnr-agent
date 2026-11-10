@@ -17,7 +17,7 @@ async function open(width: number, height: number) {
 async function runCase(page: Page, label: string, model: string, opts: { fresh?: boolean; again?: boolean } = {}) {
   if (opts.fresh) await fetch(`${BASE}/api/ledger`, { method: 'DELETE' });
   if (!opts.again) await page.getByRole('button', { name: new RegExp(label) }).click();
-  await page.getByLabel('Model', { exact: true }).selectOption(model);
+  if (!opts.again) await page.getByLabel('Model', { exact: true }).selectOption(model);
   await page.getByRole('button', { name: /^(Run agent|Run again|Start over)/ }).click();
   await finished(page);
 }

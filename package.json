@@ -15,7 +15,8 @@
     "eval:all": "bash scripts/eval-all.sh",
     "cases": "tsx evals/build-cases.ts",
     "report": "tsx evals/report.ts",
-    "shots": "tsx scripts/shots.ts"
+    "shots": "tsx scripts/shots.ts",
+    "clips": "tsx scripts/clips.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.99",

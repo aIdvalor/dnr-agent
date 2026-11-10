@@ -88,7 +88,8 @@ The app runs offline. Its default model is **replay**: it re-plays recorded resp
 | `npm run eval:all` | variance check, both ablations, gate, and regenerates `evals/REPORT.md` |
 | `npm run eval:live -- --repeat 3` | live model: spend-capped, paced for free tiers, retries 429s, records every response for replay, stops cleanly at a daily quota |
 | `npm run eval:live -- --resume` | continue an interrupted live run (rows are appended per case) |
-| `npm run shots` | UI screenshots into `shots/` (needs the app running and Chrome) |
+| `npm run shots` | UI screenshots into `shots/` (needs the app running and Chrome; replay + scripted only) |
+| `npm run clips` | demo screen recordings via headless Playwright video (run the app with `DNR_DEMO_PACE_MS=700`; no API calls) |
 
 ## Eval pack
 
