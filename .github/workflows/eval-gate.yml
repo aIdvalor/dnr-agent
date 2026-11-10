@@ -1,0 +1,22 @@
+name: deterministic safety and replay regression gate
+# Every PR and push to main. No model key, $0. This is NOT a live-model quality gate: it checks the control system
+# (policy, state machine, ledger, commit path) with scripted models, and recorded live-model traces replayed through
+# the current code. Fails on: any critical violation; any missing, skipped or duplicated case-turn; any grader error;
+# a refund-eligible case the well-behaved scripted agent did not grant ("escalate everything" fails); any metric below
+# evals/baseline.json; failing unit tests, which include commit-boundary invariants and grader self-tests that feed
+# deliberately bad traces. Then builds the static demo and checks it contains no API route, provider code or key.
+on:
+  pull_request:
+  push:
+    branches: [master]
+jobs:
+  gate:
+    name: deterministic safety and replay regression gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run gate
+      - run: npm run build && bash scripts/verify-static.sh out
