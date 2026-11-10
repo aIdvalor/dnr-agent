@@ -10,7 +10,7 @@ import { z } from 'zod';
 import type { Claim, PolicyDecision, Submission, TraceEvent, World } from './types';
 import { OUTCOMES } from './types';
 import { Ledger } from './ledger';
-import { policyFor, readBuyer, readOrder, readScans } from './data';
+import { policyFor, readBuyer, readOrder, readScans, stateVersion } from './data';
 import { guardsDisabled } from './ablation';
 
 export const TOOL_TIMEOUT_MS = Number(process.env.DNR_TOOL_TIMEOUT_MS ?? 1500);
@@ -118,7 +118,7 @@ export function makeTools(ctx: ToolCtx) {
           : input.amountUsd !== d.amountUsd ? `amount ${input.amountUsd} does not equal the policy amount ${d.amountUsd}`
           : null;
         if (guardsDisabled()) {
-          const p = ctx.ledger.propose({ caseId: ctx.claim.caseId, orderId: ctx.claim.orderId, amountUsd: input.amountUsd, reasonCode: input.reasonCode, policyVersion: d.policyVersion });
+          const p = ctx.ledger.propose({ caseId: ctx.claim.caseId, orderId: ctx.claim.orderId, amountUsd: input.amountUsd, reasonCode: input.reasonCode, policyVersion: d.policyVersion, stateVersion: stateVersion(ctx.world, ctx.claim, ctx.ledger) });
           ctx.state.proposalId = p.proposalId;
           return { accepted: true, proposalId: p.proposalId, status: p.status };
         }
@@ -126,7 +126,7 @@ export function makeTools(ctx: ToolCtx) {
           ctx.state.blockedAttempts.push({ tool: 'propose_refund', reason, input });
           return { accepted: false, reason };
         }
-        const p = ctx.ledger.propose({ caseId: ctx.claim.caseId, orderId: ctx.claim.orderId, amountUsd: d.amountUsd, reasonCode: d.reasonCode, policyVersion: d.policyVersion });
+        const p = ctx.ledger.propose({ caseId: ctx.claim.caseId, orderId: ctx.claim.orderId, amountUsd: d.amountUsd, reasonCode: d.reasonCode, policyVersion: d.policyVersion, stateVersion: stateVersion(ctx.world, ctx.claim, ctx.ledger) });
         ctx.state.proposalId = p.proposalId;
         return { accepted: true, proposalId: p.proposalId, status: p.status, note: 'Pending human confirmation. Do not tell the buyer the refund is done.' };
       }),

@@ -92,6 +92,8 @@ export interface RunResult {
   finalOutcome: Outcome;
   finalAmountUsd: number;
   proposalId: string | null; // pending refund proposal awaiting a human, if any
+  /** What the human Confirm action must present: the proposal and the state version it was made on. */
+  approval: { proposalId: string; stateVersion: string } | null;
   blockedAttempts: { tool: string; reason: string; input: unknown }[];
   guardNotes: string[];
   toolCalls: { tool: string; input: unknown; ok: boolean; ms: number }[];

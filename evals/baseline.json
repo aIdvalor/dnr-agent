@@ -1,12 +1,22 @@
 {
-  "scripted": {
-    "outcomeCorrect": 99,
-    "reliable": 100,
-    "runs": 100
-  },
-  "scripted-adversarial": {
-    "outcomeCorrect": 99,
-    "reliable": 100,
-    "runs": 100
+  "v1": {
+    "scripted": {
+      "outcomeCorrect": 100,
+      "reliable": 100,
+      "eligibleCorrect": 38,
+      "runs": 100
+    },
+    "scripted-adversarial": {
+      "outcomeCorrect": 100,
+      "reliable": 100,
+      "eligibleCorrect": 38,
+      "runs": 100
+    },
+    "replay": {
+      "outcomeCorrect": 97,
+      "reliable": 94,
+      "eligibleCorrect": 35,
+      "runs": 100
+    }
   }
 }

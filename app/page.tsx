@@ -13,13 +13,22 @@ type DemoCase = {
 };
 type Entry = { proposalId: string; caseId: string; orderId: string; amountUsd: number; reasonCode: string; status: string; createdAt: string; committedAt?: string; rejectedReason?: string };
 type Metric = { cases: number; runs: number; criticals: number; outcome: [number, number]; agree: [number, number]; evidence: [number, number]; reliable: [number, number]; injection: [number, number]; benignFP: [number, number]; blocked: number; p50: number; p95: number; tokens: number };
-type Evals = { generatedAt: string | null; pack: string; scripted: Metric; adversarial: Metric; live: (Metric & { model: string; at: string; quotaStoppedAt: string | null; cleanP50: number | null; cleanP95: number | null; timeouts: number }) | null; ablationNoGuards: Metric | null };
+type Evals = { heldout?: { scripted: Metric; adversarial: Metric; at: string } | null; generatedAt: string | null; pack: string; scripted: Metric; adversarial: Metric; live: (Metric & { model: string; at: string; quotaStoppedAt: string | null; cleanP50: number | null; cleanP95: number | null; timeouts: number }) | null; ablationNoGuards: Metric | null };
 
 const MODEL_LABEL: Record<string, string> = {
   scripted: 'Scripted agent (offline, deterministic)',
   'scripted-adversarial': 'Compromised model (obeys injected text)',
-  live: 'Live LLM via AI SDK',
 };
+/** Static demo: every run below is a recording baked at build time (scripts/build-static-data.ts). No server, no model calls. */
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+type RecNode = { events: TraceEvent[]; result: RunResult | null; ledger: Entry[]; commit?: { status: string; reason?: string; entry?: Entry }; turn: number; model: string };
+const bundles = new Map<string, Promise<Record<string, RecNode>>>();
+const bundle = (id: string, model: string) => {
+  const k = `${id}.${model}`;
+  if (!bundles.has(k)) bundles.set(k, fetch(`${BASE}/demo/runs/${k}.json`).then((r) => (r.ok ? r.json() : {})));
+  return bundles.get(k)!;
+};
+const PACE_MS = 280;
 const OUTCOME_WORD: Record<string, string> = { REFUND_ELIGIBLE: 'Refund eligible', WAIT_FOR_EVIDENCE: 'Wait for evidence', ESCALATE: 'Escalate to a human' };
 const money = (n: number) => `$${n.toFixed(2)}`;
 const frac = (x?: [number, number]) => (x ? `${x[0]}/${x[1]}` : '–');
@@ -56,7 +65,7 @@ export default function Page() {
   const [sel, setSel] = useState('n01');
   const [model, setModel] = useState('replay');
   const [replayModel, setReplayModel] = useState('');
-  const [live, setLive] = useState(false);
+  const [path, setPath] = useState('');
   const [events, setEvents] = useState<TraceEvent[]>([]);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<RunResult | null>(null);
@@ -68,44 +77,39 @@ export default function Page() {
   const reduced = useRef(false);
   const autoplayed = useRef(false);
 
-  const refreshLedger = useCallback(async () => {
-    const r = await fetch('/api/ledger').then((x) => x.json());
-    setLedger(r.entries); setLive(r.live); setReplayModel(r.replayModel ?? '');
-  }, []);
 
   const c = useMemo(() => cases.find((x) => x.id === sel), [cases, sel]);
   const turnInfo = c?.turns[turn];
   const replayOk = !!turnInfo && turnInfo.replay !== 'none';
   const effModel = model === 'replay' && !replayOk ? 'scripted' : model;
 
+  // The model choice picks a recording set; each turn uses the recorded live run when one exists, else the scripted agent.
   const run = useCallback(async (opts: { caseId?: string; turn?: number; fresh?: boolean; model?: string } = {}) => {
     const caseId = opts.caseId ?? sel, t = opts.turn ?? 0;
+    const want = opts.model === 'replay' || model === 'replay' ? 'replay' : (opts.model ?? model);
+    const selModel = want === 'replay' && !cases.find((x) => x.id === caseId)?.replay ? 'scripted' : want;
+    const multi = (cases.find((x) => x.id === caseId)?.turns.length ?? 1) > 1;
+    const p = opts.fresh || (multi && t === 0) ? 'r' : path + 'r';
     setRunning(true); setEvents([]); setResult(null); setCommitMsg(null); setTurn(t);
-    const res = await fetch('/api/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ caseId, turn: t, model: opts.model ?? effModel, fresh: !!opts.fresh, pace: !reduced.current }) });
-    if (!res.ok || !res.body) { setCommitMsg((await res.json()).error ?? 'Run failed'); setRunning(false); return; }
-    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
-    for (;;) {
-      const { value, done } = await reader.read(); if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const lines = buf.split('\n'); buf = lines.pop() ?? '';
-      for (const l of lines) if (l.trim()) {
-        const e = JSON.parse(l) as TraceEvent;
-        setEvents((x) => [...x, e]);
-        if (e.type === 'run-end') setResult(e.result);
-      }
+    const node = (await bundle(caseId, selModel))[p];
+    if (!node) { setCommitMsg('This static demo records up to three runs per scenario. Press Reset on the ledger to start again.'); setRunning(false); return; }
+    setPath(p);
+    for (const e of node.events) {
+      setEvents((x) => [...x, e]);
+      if (e.type === 'run-end') setResult(e.result);
+      if (!reduced.current && (e.type === 'tool-result' || e.type === 'guard')) await new Promise((r) => setTimeout(r, PACE_MS));
     }
-    setRunning(false); refreshLedger();
-  }, [sel, effModel, refreshLedger]);
+    setLedger(node.ledger); setRunning(false);
+  }, [sel, model, path, cases]);
 
   useEffect(() => {
     reduced.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const q = new URLSearchParams(window.location.search);
     if (q.get('case')) setSel(q.get('case')!);
     if (q.get('model')) setModel(q.get('model')!);
-    fetch('/api/cases').then((r) => r.json()).then(setCases);
-    fetch('/api/evals').then((r) => r.json()).then(setEvals);
-    refreshLedger();
-  }, [refreshLedger]);
+    fetch(`${BASE}/demo/cases.json`).then((r) => r.json()).then((d) => { setCases(d.cases); setReplayModel(d.replayModel ?? ''); });
+    fetch(`${BASE}/demo/evals.json`).then((r) => r.json()).then(setEvals);
+  }, []);
 
   // The default scenario plays the happy path up to the Confirm button (once per visit); ?autoplay=0 turns it off.
   useEffect(() => {
@@ -117,18 +121,21 @@ export default function Page() {
     run({ caseId: 'n01', fresh: true, model: 'replay' });
   }, [cases, run]);
 
-  async function confirm(proposalId: string) {
-    const r = await fetch('/api/commit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ proposalId }) }).then((x) => x.json());
-    setCommitMsg(r.status === 'committed' ? `Simulated refund of ${money(r.entry.amountUsd)} written to the case ledger. No money moved.`
+  async function confirm(_proposalId: string) {
+    const selModel = model === 'replay' && !cases.find((x) => x.id === sel)?.replay ? 'scripted' : model;
+    const node = (await bundle(sel, selModel))[path + 'c'];
+    const r = node?.commit as { status: string; reason?: string; entry?: Entry } | undefined;
+    if (!node || !r) { setCommitMsg('Already confirmed: a second click is a no-op (idempotent).'); return; }
+    setPath(path + 'c'); setLedger(node.ledger);
+    setCommitMsg(r.status === 'committed' ? `Simulated refund of ${money(r.entry!.amountUsd)} written to the case ledger. No money moved.`
       : r.status === 'already_committed' ? 'Already committed: this click was a no-op (idempotent).'
       : `Rejected at the commit-time recheck: ${r.reason}`);
-    if (r.status === 'committed') setFresh(proposalId);
-    refreshLedger();
+    if (r.status === 'committed') setFresh(r.entry!.proposalId);
   }
-  async function resetLedger() { await fetch('/api/ledger', { method: 'DELETE' }); setCommitMsg(null); setFresh(null); refreshLedger(); }
-  function pick(id: string) { setSel(id); setEvents([]); setResult(null); setCommitMsg(null); setTurn(0); }
+  function resetLedger() { setPath(''); setLedger([]); setCommitMsg(null); setFresh(null); setEvents([]); setResult(null); setTurn(0); }
+  function pick(id: string) { setSel(id); setEvents([]); setResult(null); setCommitMsg(null); setTurn(0); setPath(''); setLedger([]); setFresh(null); }
 
-  const pending = result?.proposalId ? ledger.find((e) => e.proposalId === result.proposalId) : null;
+  const pending = result?.proposalId ? ledger.find((e) => e.proposalId === result.proposalId) : null; // ids are deterministic in the recordings
   const committed = pending?.status === 'committed';
   const calls = events.filter((e): e is Extract<TraceEvent, { type: 'tool-call' }> => e.type === 'tool-call');
   const results = events.filter((e): e is Extract<TraceEvent, { type: 'tool-result' }> => e.type === 'tool-result');
@@ -150,7 +157,7 @@ export default function Page() {
         <section className="hero" aria-labelledby="hero-h">
           <h1 id="hero-h">Policy decides. The model only gathers. A human confirms.</h1>
           <p className="lede">A tool-calling agent for &ldquo;delivered but not received&rdquo; claims. The LLM reads the order, carrier scans and buyer history and drafts the reply. Deterministic code sets eligibility and amount. Nothing is paid until a person clicks Confirm.</p>
-          <p className="disclose" role="note"><b>Proof of concept.</b> Synthetic orders, scans and buyers. Refunds are simulated entries in a local ledger; no real systems or money. The default model replays a recorded free-tier Gemini run; no API key is used.</p>
+          <p className="disclose" role="note"><b>Proof of concept.</b> Synthetic orders, scans and buyers. Refunds are simulated entries in a local ledger; no real systems or money. The default model replays a recorded free-tier Gemini run. This page is static: every run is a recording made at build time through the real policy, ledger and commit code, and nothing here calls a model.</p>
         </section>
 
         <section id="demo" className="demo" aria-label="Demo">
@@ -187,11 +194,10 @@ export default function Page() {
                 </details>
                 <div className="runbar">
                   <label className="sr" htmlFor="model">Model</label>
-                  <select id="model" value={effModel} onChange={(e) => { setModel(e.target.value); setEvents([]); setResult(null); setCommitMsg(null); setTurn(0); }}>
+                  <select id="model" value={effModel} onChange={(e) => { setModel(e.target.value); setEvents([]); setResult(null); setCommitMsg(null); setTurn(0); setPath(''); setLedger([]); setFresh(null); }}>
                     <option value="replay" disabled={!replayOk}>{`Recorded ${replayModel || 'live LLM'} run (replay, no key)`}{replayOk ? '' : ' (not recorded)'}</option>
                     <option value="scripted">{MODEL_LABEL.scripted}</option>
                     <option value="scripted-adversarial">{MODEL_LABEL['scripted-adversarial']}</option>
-                    <option value="live" disabled={!live}>{MODEL_LABEL.live}{live ? '' : ' (off in this demo)'}</option>
                   </select>
                   <button className="btn" onClick={() => run({ turn: 0, fresh: !result && turn === 0, model: model === 'replay' ? (c.turns[0].replay !== 'none' ? 'replay' : 'scripted') : model })} disabled={running}>{running ? 'Running…' : c.turns.length > 1 && (turn > 0 || result) ? 'Start over' : result ? 'Run again (same ledger)' : 'Run agent'}</button>
                 </div>

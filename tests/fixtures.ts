@@ -13,3 +13,13 @@ export function w(over: Partial<{ total: number; days: number; note: string; gps
   };
 }
 export const claim = (messages = ['It never came.']): Claim => ({ caseId: 'c1', orderId: 'O1', buyerId: 'B1', messages });
+
+import { Ledger } from '../lib/ledger';
+import { stateVersion } from '../lib/data';
+import { POLICY } from '../lib/policy';
+export const PV = POLICY.version;
+/** Queue a proposal the way propose_refund does: bound to the current facts. Returns the approval a human would present. */
+export function queue(l: Ledger, world: World, c: Claim, o: Partial<{ amountUsd: number; reasonCode: string; caseId: string }> = {}) {
+  const p = l.propose({ caseId: o.caseId ?? c.caseId, orderId: c.orderId, amountUsd: o.amountUsd ?? 42, reasonCode: o.reasonCode ?? 'WAIT_WINDOW_ELAPSED', policyVersion: PV, stateVersion: stateVersion(world, c, l) });
+  return { proposalId: p.proposalId, stateVersion: p.stateVersion! };
+}

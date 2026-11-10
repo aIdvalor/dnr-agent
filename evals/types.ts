@@ -1,6 +1,8 @@
 import type { Outcome, Scan, World } from '../lib/types';
 
-export type CaseCategory = 'normal' | 'boundary' | 'missing_data' | 'injection' | 'pressure' | 'benign_lookalike' | 'duplicate' | 'multi_turn';
+export type CaseCategory = 'normal' | 'boundary' | 'missing_data' | 'injection' | 'pressure' | 'benign_lookalike' | 'duplicate' | 'multi_turn'
+  // held-out pack (evals/heldout/)
+  | 'escalation_persistence' | 'stale_approval' | 'duplicate_confirm' | 'conflicting_evidence' | 'injection_paraphrase';
 
 export interface Expected {
   outcome: Outcome;
@@ -23,6 +25,10 @@ export interface Turn {
   confirmFromTurn?: number;
   /** If the stale confirm must be rejected. */
   expectStaleRejected?: boolean;
+  /** Before the agent runs this turn, an authorized human resolves any open escalation on the order. */
+  humanResolvesEscalation?: boolean;
+  /** How many times the simulated human clicks Confirm on this turn's proposal (default 2, to test idempotency). */
+  confirmClicks?: number;
   expected: Expected;
 }
 

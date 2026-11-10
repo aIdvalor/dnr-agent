@@ -10,7 +10,7 @@ import { ToolLoopAgent, hasToolCall, isStepCount } from 'ai';
 import type { Claim, Outcome, RunResult, TraceEvent, World } from './types';
 import { Ledger } from './ledger';
 import { makeTools, type RunState } from './tools';
-import { policyFor } from './data';
+import { policyFor, stateVersion } from './data';
 import { getModel } from './models';
 import { SAFE_REPLY, replyProblems } from './guard';
 import { guardsDisabled } from './ablation';
@@ -36,7 +36,17 @@ Rules:
 - Be brief. You have at most ${MAX_STEPS} steps.`;
 
 
-export interface RunOptions { world: World; claim: Claim; ledger: Ledger; modelSpec: string; emit?: (e: TraceEvent) => void; maxSteps?: number }
+/**
+ * Budgets, and which layer enforces each:
+ *  - maxSteps (6): AI SDK stopWhen isStepCount. A step is one model call; it may contain several parallel tool calls,
+ *    so 6 steps is not 6 tool calls.
+ *  - stepTimeoutMs (20 s) and totalTimeoutMs (60 s): AI SDK generate() timeout (aborts the model call).
+ *  - tool timeout (1.5 s): lib/tools.ts traced() Promise.race; a timed-out tool returns an error to the model and
+ *    the policy engine fails closed on the same data source.
+ * Any exhaustion ends in the same terminal state: no submission -> ESCALATE, any queued proposal rejected,
+ * an open escalation recorded, no commit, and no buyer reply from the model.
+ */
+export interface RunOptions { world: World; claim: Claim; ledger: Ledger; modelSpec: string; emit?: (e: TraceEvent) => void; maxSteps?: number; stepTimeoutMs?: number; totalTimeoutMs?: number }
 
 export function claimPrompt(claim: Claim) {
   return `New DNR claim.
@@ -66,7 +76,7 @@ export async function runAgent(o: RunOptions): Promise<RunResult> {
   try {
     const r = await agent.generate({
       prompt: claimPrompt(o.claim),
-      timeout: { totalMs: TOTAL_TIMEOUT_MS, stepMs: STEP_TIMEOUT_MS },
+      timeout: { totalMs: o.totalTimeoutMs ?? TOTAL_TIMEOUT_MS, stepMs: o.stepTimeoutMs ?? STEP_TIMEOUT_MS },
       onStepEnd: () => { state.step += 1; },
     } as any);
     steps = r.steps.length;
@@ -94,7 +104,7 @@ export async function runAgent(o: RunOptions): Promise<RunResult> {
     if (sub && final === 'REFUND_ELIGIBLE' && sub.amountUsd !== policy.amountUsd) notes.push(`Agent amount $${sub.amountUsd} ignored; policy amount is $${policy.amountUsd}.`);
 
     if (final === 'REFUND_ELIGIBLE' && !proposalId) {
-      proposalId = o.ledger.propose({ caseId: o.claim.caseId, orderId: o.claim.orderId, amountUsd: policy.amountUsd, reasonCode: policy.reasonCode, policyVersion: policy.policyVersion }).proposalId;
+      proposalId = o.ledger.propose({ caseId: o.claim.caseId, orderId: o.claim.orderId, amountUsd: policy.amountUsd, reasonCode: policy.reasonCode, policyVersion: policy.policyVersion, stateVersion: stateVersion(o.world, o.claim, o.ledger) }).proposalId;
       notes.push('Agent did not queue the refund; the guard queued the policy amount for human confirmation.');
     }
     if (final !== 'REFUND_ELIGIBLE' && proposalId) {
@@ -119,7 +129,8 @@ export async function runAgent(o: RunOptions): Promise<RunResult> {
   const result: RunResult = {
     caseId: o.claim.caseId, model: id, policy, submission: sub,
     finalOutcome: final, finalAmountUsd: finalAmount,
-    proposalId, blockedAttempts: state.blockedAttempts, guardNotes: notes, toolCalls: state.toolCalls,
+    proposalId, approval: proposalId ? { proposalId, stateVersion: o.ledger.get(proposalId)?.stateVersion ?? '' } : null,
+    blockedAttempts: state.blockedAttempts, guardNotes: notes, toolCalls: state.toolCalls,
     seenEvidenceIds: [...state.seenEvidenceIds], steps, finishedCleanly: !!sub && !error, error,
     latencyMs: Date.now() - t0 - (liveState.waitedMs - waited0), // excludes free-tier pacing/backoff waits
     waitedMs: liveState.waitedMs - waited0, usage: { inputTokens: inTok, outputTokens: outTok },

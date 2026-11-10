@@ -1,6 +1,7 @@
 /** Data access for tools AND the policy engine. Both read the same synthetic world; the model cannot inject facts. */
 import type { BuyerHistory, Claim, Order, Scan, ToolFault, World } from './types';
 import { Ledger } from './ledger';
+import { createHash } from 'node:crypto';
 import { decide, type PolicyInputs } from './policy';
 
 export class DataFault extends Error {
@@ -33,4 +34,16 @@ export function policyInputs(w: World, claim: Claim, ledger: Ledger): PolicyInpu
 
 export function policyFor(w: World, claim: Claim, ledger: Ledger) {
   return decide(policyInputs(w, claim, ledger));
+}
+
+/**
+ * State version: a hash of every fact the policy decision depends on (order, scans incl. notes, buyer history,
+ * buyer messages, prior refunds, open escalations, policy version, data faults). A proposal records the version
+ * it was made on and a human approval names that version, so an approval given on old facts cannot commit
+ * after the facts change, even if the new facts would also allow a refund.
+ */
+export function stateVersion(w: World, claim: Claim, ledger: Ledger): string {
+  const i = policyInputs(w, claim, ledger);
+  const d = decide(i);
+  return createHash('sha256').update(JSON.stringify([d.policyVersion, i.order, i.scans, i.buyer, i.buyerMessages, i.priorRefunds, i.openEscalations ?? 0, i.dataFault ?? null])).digest('hex').slice(0, 16);
 }

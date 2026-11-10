@@ -6,3 +6,5 @@ data/ledger.json
 .env*
 !.env.example
 evals/results/*-rows.jsonl
+public/demo/
+out/
