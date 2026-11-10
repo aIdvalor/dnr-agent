@@ -17,7 +17,7 @@ rm -rf out public/recorded && NEXT_PUBLIC_BASE_PATH=/dnr-agent npm run build && 
 
 # 1. Fresh clone of the public repo (full history).
 rm -rf "$WORK" && git clone -q "https://github.com/$REPO.git" "$WORK/repo"
-cd "$WORK/repo"
+cd "$WORK/repo" && git config user.name aIdvalor && git config user.email aIdvalor@users.noreply.github.com
 V1_SHA=$(git rev-parse origin/master)
 say "public master (becomes v1): $V1_SHA"
 
