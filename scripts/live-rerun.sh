@@ -17,3 +17,6 @@ echo "[live-rerun] $(date) model=$DNR_MODEL tag=$TAG commit=$(git rev-parse --sh
 npx tsx evals/run.ts --live --pack heldout --repeat 1 --tag "$TAG" $RESUME || echo "[live-rerun] heldout exited $?"
 npx tsx evals/run.ts --live --pack v1 --repeat 1 --tag "$TAG" $RESUME || echo "[live-rerun] v1 exited $?"
 echo "[live-rerun] done: evals/results/live-heldout-$TAG.json, evals/results/live-$TAG.json (v1), recordings in evals/recordings/*-$TAG.jsonl"
+# Post-eval (no model calls): regenerate evals/REPORT.md from date-tagged result files
+# plus the Nov 9 live.json the demo still uses. Does not overwrite recordings.
+npx tsx evals/report.ts

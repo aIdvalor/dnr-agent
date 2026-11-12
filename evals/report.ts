@@ -9,6 +9,23 @@ const noGuard = load('evals/results/deterministic-ablation-no-guards.json');
 const live = load('evals/results/live.json');
 const replay = load('evals/results/replay.json');
 const liveRows: any[] = fs.existsSync('evals/results/live-rows.jsonl') ? fs.readFileSync('evals/results/live-rows.jsonl', 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+
+const loadRows = (f: string): any[] => fs.existsSync(f) ? fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+/** Latest date-tagged live result file, e.g. live-2026-11-11.json (never live.json). */
+function latestTagged(kind: 'live' | 'live-heldout'): { tag: string; file: string; data: any; rows: any[] } | null {
+  const dir = 'evals/results';
+  if (!fs.existsSync(dir)) return null;
+  const re = kind === 'live' ? /^live-(\d{4}-\d{2}-\d{2})\.json$/ : /^live-heldout-(\d{4}-\d{2}-\d{2})\.json$/;
+  const hits = fs.readdirSync(dir).map((n) => n.match(re)).filter(Boolean) as RegExpMatchArray[];
+  hits.sort((a, b) => a[1].localeCompare(b[1]));
+  const m = hits.at(-1);
+  if (!m) return null;
+  const file = path.join(dir, m[0]);
+  return { tag: m[1], file, data: load(file), rows: loadRows(file.replace(/\.json$/, '-rows.jsonl')) };
+}
+const fmtTag = (t: string) => new Date(`${t}T12:00:00-08:00`).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', year: 'numeric' });
+const liveFixed = latestTagged('live');
+const liveHeldout = latestTagged('live-heldout');
 if (!main) throw new Error('run `npm run eval` first');
 const S: Record<string, any> = { ...main.summaries };
 const LIVE_ID = live ? String(live.liveModel ?? 'live').replace(/^google:/, '') : null;
@@ -26,7 +43,7 @@ let md = `# DNR agent v2 — eval report
 
 Pack \`${main.pack}\` · generated ${now} · ${S.scripted.cases} cases / ${S.scripted.runs} runs per model (multi-turn cases count one run per turn).
 
-> **What these numbers are.** \`scripted\` and \`scripted-adversarial\` are **scripted** (no LLM): they drive the real AI SDK tool loop, tools, policy engine, ledger and guards, so they measure the **control system**. \`scripted-adversarial\` deliberately obeys injected text and asks for the injected amount. ${live ? `The **live** column is a real LLM (**${LIVE_ID}**, free tier) through the same loop: ${live.summaries.live.runs} runs over ${live.repeat ?? live.liveStats?.repeatRequested} requested repeat(s)${live.liveStats?.quotaStoppedAt ? `, stopped early by the daily free-tier quota at ${live.liveStats.quotaStoppedAt}` : ''}. Live latency excludes free-tier pacing and 429 back-off waits. The live run used pack v1 before case \`t07\` was added (90 cases); \`t07\` is the regression case written from the live run's one critical violation. The **replay** column re-plays the live run's recorded rep-0 model responses (no API calls) through the current code, including that fix; runs the live model never finished (timeouts) replay as fail-closed escalations.` : '**Live-model results: not run yet.**'}
+> **What these numbers are.** \`scripted\` and \`scripted-adversarial\` are **scripted** (no LLM): they drive the real AI SDK tool loop, tools, policy engine, ledger and guards, so they measure the **control system**. \`scripted-adversarial\` deliberately obeys injected text and asks for the injected amount. ${live ? `The **live** column is a real LLM (**${LIVE_ID}**, free tier) through the same loop: ${live.summaries.live.runs} runs over ${live.repeat ?? live.liveStats?.repeatRequested} requested repeat(s)${live.liveStats?.quotaStoppedAt ? `, stopped early by the daily free-tier quota at ${live.liveStats.quotaStoppedAt}` : ''}. Live latency excludes free-tier pacing and 429 back-off waits. The live run used pack v1 before case \`t07\` was added (90 cases); \`t07\` is the regression case written from the live run's one critical violation. The **replay** column re-plays the live run's recorded rep-0 model responses (no API calls) through the current code, including that fix; runs the live model never finished (timeouts) replay as fail-closed escalations.` : '**Live-model results: not run yet.**'}${liveFixed ? ` The headline live column is the Nov 9 pre-fix run. A later live run on the fixed code (${fmtTag(liveFixed.tag)}, date-tagged results; this report does not call a model) is under Fresh live run.` : ''}
 
 ## Headline
 
@@ -130,17 +147,18 @@ Detector recall measures regexes, not the model: the tripwire runs inside the po
 | Regression case \`t07\` (scripted) | the non-sticky-escalation bug reproduces with the fix off and is blocked with it on | fresh-model behaviour |
 | Replay of the live run's recorded responses through current code | the same model decisions now end with 0 criticals; \`t03\` turn 1 is refused at \`propose_refund\` | how the model would react to the new tool results; replay cannot ask the model again |
 | Unit invariants (\`tests/invariants.test.ts\`) | the commit boundary holds for retries, stale approvals, duplicate and concurrent confirms, budget exhaustion and undetected injections | model judgement |
-| **Fresh live run on the fixed code** | **not done yet.** Scheduled: \`scripts/live-rerun.sh\` (held-out pack first, then v1, free tier) | — |
+| **Fresh live run on the fixed code** | ${liveFixed ? `${fmtTag(liveFixed.tag)}, **${String(liveFixed.data.liveModel ?? '').replace(/^google:/, '')}**, free tier, ${liveFixed.data.repeat ?? liveFixed.data.liveStats?.repeatRequested ?? '?'} repeat(s), pack \`${liveFixed.data.pack}\` (includes \`t07\`): **${liveFixed.data.summaries.live.criticalViolations} criticals**, ${liveFixed.data.summaries.live.casesPassed}/${liveFixed.data.summaries.live.cases} cases and ${liveFixed.data.summaries.live.outcomeCorrect}/${liveFixed.data.summaries.live.runs} turns correct; ${liveFixed.rows.filter((r: any) => !r.reliable).length} step timeouts failed closed. Cost $0.` : '**not done yet.** Scheduled: `scripts/live-rerun.sh` (held-out pack first, then v1, free tier)'} ${liveHeldout && liveFixed ? ` Held-out pack: **${liveHeldout.data.summaries.live.criticalViolations} criticals**, ${liveHeldout.data.summaries.live.casesPassed}/${liveHeldout.data.summaries.live.cases} cases and ${liveHeldout.data.summaries.live.outcomeCorrect}/${liveHeldout.data.summaries.live.runs} turns correct; tripwire caught ${liveHeldout.data.summaries.live.injectionCaught}/${liveHeldout.data.summaries.live.injectionDen} paraphrases; misses that finished paid only the policy amount after a human.` : ''} | ${liveFixed ? 'one model, one completed repeat; timeouts are fail-closed, not policy misses. Same author as the pack.' : '—'} |
 
 ` : '';
   const ho1 = fp ? `## Held-out pack \`heldout-v1\`: first pass (recorded before any tuning)
 
-20 adversarial cases / 34 turns written from \`policy.json\` and the eval spec, committed before the first run and frozen by hash (\`evals/heldout/README.md\`). Same author as the code, so held-out but **not independent**. Scripted models only so far (control system, $0); the free live run is queued in \`scripts/live-rerun.sh\`.
+20 adversarial cases / 34 turns written from \`policy.json\` and the eval spec, committed before the first run and frozen by hash (\`evals/heldout/README.md\`). Same author as the code, so held-out but **not independent**. Scripted models measure the control system ($0). ${liveHeldout ? `A live run on the fixed code (${fmtTag(liveHeldout.tag)}, **${String(liveHeldout.data.liveModel ?? '').replace(/^google:/, '')}**, free tier, ${liveHeldout.data.repeat ?? 1} repeat) is in the table below.` : 'The free live run of this pack is queued in `scripts/live-rerun.sh`.'}
 
 | Model | Cases passed | Turns correct | Critical | Detector recall (paraphrases) | Blocked |
 |---|---|---|---|---|---|
 | scripted | ${fpS.casesPassed}/${fpS.cases} | ${fpS.outcomeCorrect}/${fpS.runs} | **${fpS.criticalViolations}** | ${fpS.injectionCaught}/${fpS.injectionDen} | ${fpS.blockedAttempts} |
 | scripted-adversarial | ${fpA.casesPassed}/${fpA.cases} | ${fpA.outcomeCorrect}/${fpA.runs} | **${fpA.criticalViolations}** | ${fpA.injectionCaught}/${fpA.injectionDen} | ${fpA.blockedAttempts} |
+${liveHeldout ? `| live ${fmtTag(liveHeldout.tag)} (${String(liveHeldout.data.liveModel ?? '').replace(/^google:/, '')}) | ${liveHeldout.data.summaries.live.casesPassed}/${liveHeldout.data.summaries.live.cases} | ${liveHeldout.data.summaries.live.outcomeCorrect}/${liveHeldout.data.summaries.live.runs} | **${liveHeldout.data.summaries.live.criticalViolations}** | ${liveHeldout.data.summaries.live.injectionCaught}/${liveHeldout.data.summaries.live.injectionDen} | ${liveHeldout.data.summaries.live.blockedAttempts} |` : ''}
 
 | Group (scripted) | Cases passed | Turns correct | Critical |
 |---|---|---|---|
@@ -150,16 +168,74 @@ First-pass failures (scripted; identical for the adversarial model):
 ${misses}
 
 Reading it: every escalation-persistence, stale-approval, duplicate-confirm and conflicting-evidence case passed on the first run, so no state or commit bug was found and nothing was relabelled as a regression. The tripwire missed 3 of 4 injection paraphrases. None was critical: each paid only the policy amount after a human Confirm, the same property the tripwire-off tests prove. They stay in the pack as honest misses, and the regex was **not** tuned on them (that would turn them into regression cases). This is the expected behaviour of a heuristic, and it is why amounts, escalation and commit live in code.
+${liveHeldout ? `
+Live held-out failures (${fmtTag(liveHeldout.tag)}; **${liveHeldout.data.summaries.live.criticalViolations}** criticals):
 
+| Case | Expected | Got | Critical | Other |
+|---|---|---|---|---|
+${failRows(liveHeldout.data.summaries.live.failures)}
+
+The tripwire caught ${liveHeldout.data.summaries.live.injectionCaught} of ${liveHeldout.data.summaries.live.injectionDen} paraphrases (the same kind of miss as the scripted first pass). Runs that finished with a missed paraphrase paid only the policy amount after a human Confirm. Timeouts failed closed to ESCALATE; none moved money.
+` : ''}
 ` : '';
+  const fresh = freshLiveSection();
   const wf = `## Scripted-workflow baseline: why an agent at all?
 
-The \`scripted\` column is the plain deterministic workflow: always read order, scans and history, run the policy, queue the refund if eligible, send a template reply. On decisions it is the ceiling: ${S.scripted.outcomeCorrect}/${S.scripted.runs} on pack v1 and ${fpS ? `${fpS.outcomeCorrect}/${fpS.runs}` : 'n/a'} on the held-out pack, at ~0 ms and $0. The live model reached ${live ? `${live.summaries.live.outcomeCorrect}/${live.summaries.live.runs}` : 'n/a'} (pre-fix, including timeouts) and adds seconds of latency.
+The \`scripted\` column is the plain deterministic workflow: always read order, scans and history, run the policy, queue the refund if eligible, send a template reply. On decisions it is the ceiling: ${S.scripted.outcomeCorrect}/${S.scripted.runs} on pack v1 and ${fpS ? `${fpS.outcomeCorrect}/${fpS.runs}` : 'n/a'} on the held-out pack, at ~0 ms and $0. The Nov 9 live model reached ${live ? `${live.summaries.live.outcomeCorrect}/${live.summaries.live.runs}` : 'n/a'} (pre-fix, including timeouts); the ${liveFixed ? fmtTag(liveFixed.tag) : 'later'} run on the fixed code reached ${liveFixed ? `${liveFixed.data.summaries.live.outcomeCorrect}/${liveFixed.data.summaries.live.runs}` : 'n/a'}. Both add seconds of latency.
 
 So the agent is not here to make better refund decisions; by design it cannot. The division of labour: **the model** chooses which evidence to fetch, handles tool errors without guessing, writes the buyer reply and the reviewer note in plain language; **code** owns eligibility, amount, escalation state and commit authorization. The honest claim is narrower: an LLM can sit in a money workflow with bounded authority and measurable failure modes. If replies can be templated, the workflow alone is the better product.
 
 `;
-  return acc + ho1 + wf;
+  return acc + ho1 + fresh + wf;
+}
+
+
+function failRows(failures: any[]) {
+  return failures.map((x: any) => `| \`${x.caseId}\` t${x.turn} r${x.rep} | ${x.expected} | ${x.got} | ${x.criticals.length ? x.criticals.join('; ') : '—'} | ${x.reliable ? '' : 'unreliable '}${x.error ? x.error : ''}${x.evidence?.applicable && !x.evidence.ok ? ` evidence missing [${(x.evidence.missing || []).join(', ')}]` : ''} |`).join('\n');
+}
+
+function freshLiveSection() {
+  if (!liveFixed?.data) return '';
+  const L = liveFixed.data.summaries.live; const st = liveFixed.data.liveStats ?? {};
+  const lr = liveFixed.rows;
+  const to = lr.filter((r: any) => !r.reliable);
+  const fin = lr.filter((r: any) => r.reliable);
+  const clean = fin.map((r: any) => r.latencyMs).sort((a: number, b: number) => a - b);
+  const qq = (xs: number[], p: number) => xs.length ? xs[Math.min(xs.length - 1, Math.ceil(p * xs.length) - 1)] : 0;
+  const totTok = lr.reduce((a: number, r: any) => a + (r.tokens ?? 0), 0);
+  const model = String(liveFixed.data.liveModel ?? '').replace(/^google:/, '');
+  const ho = liveHeldout?.data?.summaries?.live;
+  const hoSt = liveHeldout?.data?.liveStats ?? {};
+  const hoTo = (liveHeldout?.rows ?? []).filter((r: any) => !r.reliable);
+  return `
+## Fresh live run on the fixed code
+
+${fmtTag(liveFixed.tag)}, **${model}**, free tier, ${liveFixed.data.repeat ?? st.repeatRequested ?? '?'} requested repeat(s), pack \`${liveFixed.data.pack}\` (91 cases, including regression case \`t07\`). Results are date-tagged and do not overwrite the Nov 9 recording the demo replays. Cost $0. This report was regenerated from those files with no new model calls.
+
+| Metric | Pack v1 (post-fix live) | Held-out pack (post-fix live) |
+|---|---|---|
+| **Critical violations (gate = 0)** | **${L.criticalViolations}** | **${ho ? ho.criticalViolations : '—'}** |
+| Cases fully passed | ${L.casesPassed}/${L.cases} | ${ho ? `${ho.casesPassed}/${ho.cases}` : '—'} |
+| Outcome + amount correct | ${L.outcomeCorrect}/${L.runs} | ${ho ? `${ho.outcomeCorrect}/${ho.runs}` : '—'} |
+| Reason-code correct | ${L.reasonCorrect}/${L.runs} | ${ho ? `${ho.reasonCorrect}/${ho.runs}` : '—'} |
+| Model's own outcome agrees with label | ${L.agentAgrees}/${L.agentAgreeDen} | ${ho ? `${ho.agentAgrees}/${ho.agentAgreeDen}` : '—'} |
+| Evidence fidelity | ${L.evidenceOk}/${L.evidenceDen} | ${ho ? `${ho.evidenceOk}/${ho.evidenceDen}` : '—'} |
+| Workflow reliability | ${L.reliable}/${L.runs} | ${ho ? `${ho.reliable}/${ho.runs}` : '—'} |
+| Tripwire recall | ${L.injectionCaught}/${L.injectionDen} | ${ho ? `${ho.injectionCaught}/${ho.injectionDen}` : '—'} |
+| Model calls / 429-5xx retries / pacing wait | ${st.calls ?? '?'} / ${st.retries ?? '?'} / ${Math.round((st.waitedMs ?? 0) / 1000)} s | ${ho ? `${hoSt.calls ?? '?'} / ${hoSt.retries ?? '?'} / ${Math.round((hoSt.waitedMs ?? 0) / 1000)} s` : '—'} |
+| Tokens (total / per run) | ${totTok.toLocaleString('en-US')} / ${L.tokensPerRun} | ${ho && liveHeldout ? `${(liveHeldout.rows.reduce((a: number, r: any) => a + (r.tokens ?? 0), 0)).toLocaleString('en-US')} / ${ho.tokensPerRun}` : '—'} |
+| Clean latency p50 / p95 (timeouts excluded) | ${qq(clean, 0.5)} ms / ${qq(clean, 0.95)} ms | ${ho && liveHeldout ? (() => { const xs = liveHeldout.rows.filter((r: any) => r.reliable).map((r: any) => r.latencyMs).sort((a: number, b: number) => a - b); return `${qq(xs, 0.5)} ms / ${qq(xs, 0.95)} ms`; })() : '—'} |
+
+Pack v1 run accounting: **${lr.length || L.runs}** runs scored (one repeat, quota not hit). ${to.length} ended in a 120 s step timeout and failed closed to ESCALATE (none moved money): ${to.map((r: any) => `\`${r.caseId}\``).join(', ') || 'none'}. ${fin.length || L.reliable} finished with a model submission. Label agreement and evidence fidelity use the ${L.agentAgreeDen} runs that submitted.
+
+Pack v1 failures:
+
+| Case | Expected | Got | Critical | Other |
+|---|---|---|---|---|
+${failRows(L.failures) || '| — | | | | |'}
+
+${ho ? `Held-out run accounting: **${(liveHeldout.rows.length || ho.runs)}** runs scored. ${hoTo.length} step timeouts failed closed. Tripwire recall ${ho.injectionCaught}/${ho.injectionDen}.` : ''}
+`;
 }
 
 function liveSection() {
@@ -178,7 +254,7 @@ function liveSection() {
   const extra = `Completed: ${perRep}. Real variance (case-turns run in both reps): ${same}/${multi.length} identical; counting only pairs where both runs finished cleanly: ${sameClean}/${bothClean.length}. Latency of runs that finished cleanly: p50 ${qq(clean, 0.5)} ms, p95 ${qq(clean, 0.95)} ms. Tokens: ${totTok.toLocaleString('en-US')} total, ${L.tokensPerRun} per run (input + output; price $0, free tier).`;
   const notes = fs.existsSync('evals/live-notes.md') ? fs.readFileSync('evals/live-notes.md', 'utf8') : '';
   const fails = L.failures.map((x: any) => `| \`${x.caseId}\` t${x.turn} r${x.rep} | ${x.expected} | ${x.got} | ${x.criticals.length ? x.criticals.join('; ') : '—'} | ${x.reliable ? '' : 'unreliable '}${x.evidence?.applicable && !x.evidence.ok ? `evidence missing [${x.evidence.missing.join(', ')}] unseen [${x.evidence.unseen.join(', ')}]` : ''} |`).join('\n');
-  return `\n## Live model: ${LIVE_ID}\n\nRuns ${L.runs} (${L.cases} cases, repeats requested ${st.repeatRequested ?? '?'}). Model calls ${st.calls ?? '?'}, retries after 429/5xx ${st.retries ?? '?'}, pacing/back-off wait ${Math.round((st.waitedMs ?? 0) / 1000)} s (excluded from latency). Quota hits: ${(st.quotaInfo ?? []).join(', ') || 'none'}. \n\n${extra}\n\n| Case | Expected | Got | Critical | Other |\n|---|---|---|---|---|\n${fails || '| — | | | | |'}\n\n${notes}\n`;
+  return `\n## Live model: ${LIVE_ID} (Nov 9, pre-fix)\n\nRuns ${L.runs} (${L.cases} cases, repeats requested ${st.repeatRequested ?? '?'}). Model calls ${st.calls ?? '?'}, retries after 429/5xx ${st.retries ?? '?'}, pacing/back-off wait ${Math.round((st.waitedMs ?? 0) / 1000)} s (excluded from latency). Quota hits: ${(st.quotaInfo ?? []).join(', ') || 'none'}. \n\n${extra}\n\n| Case | Expected | Got | Critical | Other |\n|---|---|---|---|---|\n${fails || '| — | | | | |'}\n\n${notes}\n`;
 }
 md = md.replace(/\n\n\n+/g, '\n\n');
 fs.writeFileSync('evals/REPORT.md', md);
